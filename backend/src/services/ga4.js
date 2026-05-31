@@ -5,12 +5,30 @@ const { getOrFetch, buildKey, NAMESPACES, recordSync } = require('../cache');
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
+const { google } = require('googleapis');
+
 let _auth = null;
+let _oauth2Client = null;
 
 function getAuth() {
+  // Prefer OAuth2 user credentials (GA4_OAUTH_REFRESH_TOKEN) — works without
+  // needing to add the service account as a GA4 property user.
+  const refreshToken = process.env.GA4_OAUTH_REFRESH_TOKEN;
+  if (refreshToken) {
+    if (!_oauth2Client) {
+      _oauth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_ADS_CLIENT_ID,
+        process.env.GOOGLE_ADS_CLIENT_SECRET,
+        'http://localhost:4242/callback'
+      );
+      _oauth2Client.setCredentials({ refresh_token: refreshToken });
+    }
+    return _oauth2Client;
+  }
+
+  // Fall back to service account / ADC
   if (!_auth) {
     const raw = config.ga4.serviceAccountJson;
-
     if (raw && raw.trim()) {
       let credentials;
       if (raw.trim().startsWith('{')) {
@@ -23,7 +41,6 @@ function getAuth() {
         scopes: ['https://www.googleapis.com/auth/analytics.readonly'],
       });
     } else {
-      // Application Default Credentials fallback
       _auth = new GoogleAuth({
         scopes: ['https://www.googleapis.com/auth/analytics.readonly'],
       });
@@ -34,6 +51,11 @@ function getAuth() {
 
 async function getAccessToken() {
   const auth = getAuth();
+  // OAuth2Client uses getAccessToken() differently from GoogleAuth
+  if (auth instanceof google.auth.OAuth2) {
+    const { token } = await auth.getAccessToken();
+    return token;
+  }
   const token = await auth.getAccessToken();
   return token;
 }
