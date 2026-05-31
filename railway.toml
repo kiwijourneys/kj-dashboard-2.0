@@ -1,7 +1,2 @@
-[build]
-builder = "nixpacks"
-buildCommand = "cd backend && npm install"
-
 [deploy]
-startCommand = "cd backend && npm start"
-restartPolicyType = "on_failure"
+startCommand = "node src/index.js"
