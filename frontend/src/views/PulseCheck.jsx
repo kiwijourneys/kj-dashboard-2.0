@@ -5,7 +5,7 @@ import { fetchXeroPnl, fetchXeroMonthly, fetchXeroCostCentres, fetchXeroIncomeBy
 import KpiCard from '../components/KpiCard';
 import {
   BarChart, Bar,
-  XAxis, YAxis, Tooltip, Legend,
+  XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid,
 } from 'recharts';
 import { format, parseISO } from 'date-fns';
@@ -27,11 +27,12 @@ const INCOME_TYPE_COLORS = {
 };
 
 // Standalone clickable legend — rendered outside Recharts
+// hidden is a plain object { [name]: true } for hidden series
 function ToggleLegend({ colorMap, hidden, onToggle }) {
   return (
     <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-2 mb-1">
       {Object.entries(colorMap).map(([name, color]) => {
-        const isHidden = hidden.has(name);
+        const isHidden = !!hidden[name];
         return (
           <button
             key={name}
@@ -70,11 +71,11 @@ export default function PulseCheck() {
   const sdClosedQ      = useQuery({ queryKey: ['sdClosed',      queryParams], queryFn: () => fetchSdClosed(queryParams) });
   const rezdyProductsQ = useQuery({ queryKey: ['rezdyProducts', queryParams], queryFn: () => fetchGa4RezdyProducts(queryParams) });
 
-  const [hiddenCc, setHiddenCc]       = useState(new Set());
-  const [hiddenInc, setHiddenInc]     = useState(new Set());
+  const [hiddenCc,  setHiddenCc]  = useState({});
+  const [hiddenInc, setHiddenInc] = useState({});
 
-  const toggleCc  = useCallback(key => setHiddenCc(prev  => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; }), []);
-  const toggleInc = useCallback(key => setHiddenInc(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; }), []);
+  const toggleCc  = useCallback(key => setHiddenCc(prev  => ({ ...prev, [key]: !prev[key] })), []);
+  const toggleInc = useCallback(key => setHiddenInc(prev => ({ ...prev, [key]: !prev[key] })), []);
 
   const xeroNotConfigured = xeroPnlQ.data?.configured === false;
   const xeroConfigured    = !xeroNotConfigured && (xeroPnlQ.data != null || xeroPnlQ.isLoading);
@@ -169,10 +170,9 @@ export default function PulseCheck() {
                       labelStyle={{ color: '#3b3b3b', marginBottom: 4 }}
                       formatter={(v, name) => [`$${v.toLocaleString('en-NZ', { maximumFractionDigits: 0 })}`, name]}
                     />
-                    {centres.map((c, idx) => (
+                    {centres.filter(c => !hiddenCc[c]).map((c, idx, arr) => (
                       <Bar key={c} dataKey={c} stackId="rev" fill={COST_CENTRE_COLORS[c]}
-                        hide={hiddenCc.has(c)}
-                        radius={idx === centres.length - 1 ? [3,3,0,0] : [0,0,0,0]} />
+                        radius={idx === arr.length - 1 ? [3,3,0,0] : [0,0,0,0]} />
                     ))}
                   </BarChart>
                 </ResponsiveContainer>
@@ -309,10 +309,9 @@ export default function PulseCheck() {
                     labelStyle={{ color: '#3b3b3b', marginBottom: 4 }}
                     formatter={(v, name) => [fmtNzd(v), name]}
                   />
-                  {types.map((t, idx) => (
+                  {types.filter(t => !hiddenInc[t]).map((t, idx, arr) => (
                     <Bar key={t} dataKey={t} stackId="inc" fill={INCOME_TYPE_COLORS[t]}
-                      hide={hiddenInc.has(t)}
-                      radius={idx === types.length - 1 ? [3,3,0,0] : [0,0,0,0]} />
+                      radius={idx === arr.length - 1 ? [3,3,0,0] : [0,0,0,0]} />
                   ))}
                 </BarChart>
               </ResponsiveContainer>
