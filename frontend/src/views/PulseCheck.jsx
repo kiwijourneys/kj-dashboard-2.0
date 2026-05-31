@@ -157,24 +157,26 @@ export default function PulseCheck() {
               return row;
             });
             return (
-              <ToggleLegend colorMap={COST_CENTRE_COLORS} hidden={hiddenCc} onToggle={toggleCc} />
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="period" tick={{ fill: '#6b7280', fontSize: 11 }} />
-                  <YAxis tickFormatter={v => `$${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} tick={{ fill: '#6b7280', fontSize: 11 }} width={52} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 6 }}
-                    labelStyle={{ color: '#3b3b3b', marginBottom: 4 }}
-                    formatter={(v, name) => [`$${v.toLocaleString('en-NZ', { maximumFractionDigits: 0 })}`, name]}
-                  />
-                  {centres.map((c, idx) => (
-                    <Bar key={c} dataKey={c} stackId="rev" fill={COST_CENTRE_COLORS[c]}
-                      hide={hiddenCc.has(c)}
-                      radius={idx === centres.length - 1 ? [3,3,0,0] : [0,0,0,0]} />
-                  ))}
-                </BarChart>
-              </ResponsiveContainer>
+              <>
+                <ToggleLegend colorMap={COST_CENTRE_COLORS} hidden={hiddenCc} onToggle={toggleCc} />
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="period" tick={{ fill: '#6b7280', fontSize: 11 }} />
+                    <YAxis tickFormatter={v => `$${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} tick={{ fill: '#6b7280', fontSize: 11 }} width={52} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 6 }}
+                      labelStyle={{ color: '#3b3b3b', marginBottom: 4 }}
+                      formatter={(v, name) => [`$${v.toLocaleString('en-NZ', { maximumFractionDigits: 0 })}`, name]}
+                    />
+                    {centres.map((c, idx) => (
+                      <Bar key={c} dataKey={c} stackId="rev" fill={COST_CENTRE_COLORS[c]}
+                        hide={hiddenCc.has(c)}
+                        radius={idx === centres.length - 1 ? [3,3,0,0] : [0,0,0,0]} />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              </>
             );
           })()}
         </div>
