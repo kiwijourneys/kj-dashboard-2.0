@@ -27,7 +27,7 @@ const INCOME_TYPE_COLORS = {
 };
 
 // Clickable legend that dims hidden series
-function ToggleLegend({ payload, hidden, onToggle }) {
+function ToggleLegend({ payload = [], hidden, onToggle }) {
   return (
     <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-2">
       {payload.map(entry => {
