@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #ffffff;
+    color: #3b3b3b;
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white border border-gray-200 rounded-xl p-5 shadow-sm;
+  }
+  .kpi-card {
+    @apply card flex flex-col gap-1;
+  }
+  .badge-active {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
+    background-color: #e8f5d0;
+    color: #4a7a10;
+  }
+  .badge-paused {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700;
+  }
+  .badge-ended {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500;
+  }
+  .tab-active {
+    @apply border-b-2 font-medium;
+    border-color: #99ca3c;
+    color: #99ca3c;
+  }
+  .tab-inactive {
+    @apply border-b-2 border-transparent text-gray-400 hover:text-gray-600 transition-colors;
+  }
+}

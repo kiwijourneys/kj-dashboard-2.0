@@ -1,0 +1,31 @@
+# Dependencies (including symlinked node_modules)
+node_modules
+node_modules/
+**/node_modules
+**/node_modules/
+node_modules_gdrive_backup
+node_modules_gdrive_backup/
+**/node_modules_gdrive_backup
+**/node_modules_gdrive_backup/
+
+# Environment variables — NEVER commit these
+.env
+.env.local
+.env.production
+.env.*
+
+# Google service account — sensitive credentials
+backend/ga4-service-account.json
+
+# Build output
+frontend/dist/
+frontend/.vite/
+
+# OS & editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Claude session files
+.claude/
