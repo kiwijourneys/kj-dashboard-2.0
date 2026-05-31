@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useFilters } from '../context/FilterContext';
 import { fetchXeroPnl, fetchXeroMonthly, fetchXeroCostCentres, fetchXeroIncomeByPeriod, fetchMdClosed, fetchSdClosed, fetchGa4RezdyProducts } from '../api';
@@ -26,6 +26,28 @@ const INCOME_TYPE_COLORS = {
   'Other':      '#6b7280',
 };
 
+// Clickable legend that dims hidden series
+function ToggleLegend({ payload, hidden, onToggle }) {
+  return (
+    <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-2">
+      {payload.map(entry => {
+        const isHidden = hidden.has(entry.value);
+        return (
+          <button
+            key={entry.value}
+            onClick={() => onToggle(entry.value)}
+            className="flex items-center gap-1.5 text-xs transition-opacity"
+            style={{ opacity: isHidden ? 0.35 : 1 }}
+          >
+            <span className="inline-block w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: entry.color }} />
+            <span style={{ color: '#6b7280', textDecoration: isHidden ? 'line-through' : 'none' }}>{entry.value}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function fmtMonth(yyyyMm) {
   try { return format(parseISO(yyyyMm + '-01'), 'MMM yy'); } catch { return yyyyMm; }
 }
@@ -47,6 +69,12 @@ export default function PulseCheck() {
   const mdClosedQ      = useQuery({ queryKey: ['mdClosed',      queryParams], queryFn: () => fetchMdClosed(queryParams) });
   const sdClosedQ      = useQuery({ queryKey: ['sdClosed',      queryParams], queryFn: () => fetchSdClosed(queryParams) });
   const rezdyProductsQ = useQuery({ queryKey: ['rezdyProducts', queryParams], queryFn: () => fetchGa4RezdyProducts(queryParams) });
+
+  const [hiddenCc, setHiddenCc]       = useState(new Set());
+  const [hiddenInc, setHiddenInc]     = useState(new Set());
+
+  const toggleCc  = useCallback(key => setHiddenCc(prev  => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; }), []);
+  const toggleInc = useCallback(key => setHiddenInc(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; }), []);
 
   const xeroNotConfigured = xeroPnlQ.data?.configured === false;
   const xeroConfigured    = !xeroNotConfigured && (xeroPnlQ.data != null || xeroPnlQ.isLoading);
@@ -139,9 +167,10 @@ export default function PulseCheck() {
                     labelStyle={{ color: '#3b3b3b', marginBottom: 4 }}
                     formatter={(v, name) => [`$${v.toLocaleString('en-NZ', { maximumFractionDigits: 0 })}`, name]}
                   />
-                  <Legend wrapperStyle={{ fontSize: 12, color: '#6b7280' }} />
+                  <Legend content={<ToggleLegend hidden={hiddenCc} onToggle={toggleCc} />} />
                   {centres.map((c, idx) => (
                     <Bar key={c} dataKey={c} stackId="rev" fill={COST_CENTRE_COLORS[c]}
+                      hide={hiddenCc.has(c)}
                       radius={idx === centres.length - 1 ? [3,3,0,0] : [0,0,0,0]} />
                   ))}
                 </BarChart>
@@ -276,9 +305,10 @@ export default function PulseCheck() {
                     labelStyle={{ color: '#3b3b3b', marginBottom: 4 }}
                     formatter={(v, name) => [fmtNzd(v), name]}
                   />
-                  <Legend wrapperStyle={{ fontSize: 12, color: '#6b7280' }} />
+                  <Legend content={<ToggleLegend hidden={hiddenInc} onToggle={toggleInc} />} />
                   {types.map((t, idx) => (
                     <Bar key={t} dataKey={t} stackId="inc" fill={INCOME_TYPE_COLORS[t]}
+                      hide={hiddenInc.has(t)}
                       radius={idx === types.length - 1 ? [3,3,0,0] : [0,0,0,0]} />
                   ))}
                 </BarChart>
