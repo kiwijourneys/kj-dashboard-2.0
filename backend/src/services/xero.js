@@ -101,6 +101,31 @@ function _headers(accessToken) {
   };
 }
 
+/**
+ * Xero GET with automatic 429 retry.
+ * Xero rate-limits at ~60 calls/min. When a region has multiple option IDs
+ * (e.g. Nelson = Nelson + Mapua) and several endpoints fire concurrently,
+ * we can easily hit the limit. Retry up to 3 times with exponential backoff.
+ */
+async function _xeroGet(url, config, retries = 3) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await axios.get(url, config);
+    } catch (err) {
+      const status = err.response?.status;
+      if (status === 429 && attempt < retries) {
+        // Xero may send Retry-After header (seconds); fall back to exponential backoff
+        const retryAfter = parseInt(err.response?.headers?.['retry-after'] || '0', 10);
+        const delay = retryAfter > 0 ? retryAfter * 1000 : (2 ** attempt) * 1000;
+        console.warn(`[xero] 429 rate limit — retrying in ${delay}ms (attempt ${attempt + 1}/${retries})`);
+        await new Promise(r => setTimeout(r, delay));
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
 // ── P&L report parser ────────────────────────────────────────────────────────
 
 /**
@@ -215,7 +240,7 @@ const REGION_TO_OPTION_IDS = {
  * Fetch P&L for a single tracking option ID. Returns { sections }.
  */
 async function _fetchPnLForOption(token, optionId, extraParams = {}) {
-  const resp = await axios.get(`${API_BASE}/Reports/ProfitAndLoss`, {
+  const resp = await _xeroGet(`${API_BASE}/Reports/ProfitAndLoss`, {
     headers: _headers(token),
     params: {
       ...extraParams,
@@ -288,7 +313,7 @@ async function getPnLSummary({ startDate, endDate, region } = {}) {
     if (region && REGION_TO_OPTION_IDS[region]) {
       sections = await _fetchRegionSections(token, region, dateParams);
     } else {
-      const resp = await axios.get(`${API_BASE}/Reports/ProfitAndLoss`, {
+      const resp = await _xeroGet(`${API_BASE}/Reports/ProfitAndLoss`, {
         headers: _headers(token),
         params:  dateParams,
       });
@@ -357,7 +382,7 @@ async function _fetchMonthSummary(from, to, region = null) {
     if (region && REGION_TO_OPTION_IDS[region]) {
       sections = await _fetchRegionSections(token, region, dateParams);
     } else {
-      const resp = await axios.get(`${API_BASE}/Reports/ProfitAndLoss`, {
+      const resp = await _xeroGet(`${API_BASE}/Reports/ProfitAndLoss`, {
         headers: _headers(token),
         params:  dateParams,
       });
@@ -441,7 +466,7 @@ async function getMonthlyPnL({ startDate, endDate, region } = {}) {
 async function getTrackingCategories() {
   if (!config.xero.clientId) throw new Error('Xero not configured');
   const token = await _getAccessToken();
-  const resp = await axios.get(`${API_BASE}/TrackingCategories`, {
+  const resp = await _xeroGet(`${API_BASE}/TrackingCategories`, {
     headers: _headers(token),
   });
   return resp.data.TrackingCategories || [];
@@ -498,7 +523,7 @@ function _weekRange(startDate, endDate) {
 async function _fetchAllCentresForPeriod(token, from, to) {
   const cacheKey = buildKey(NAMESPACES.XERO, 'ccPeriod', from, to);
   return getOrFetch(cacheKey, async () => {
-    const resp = await axios.get(`${API_BASE}/Reports/ProfitAndLoss`, {
+    const resp = await _xeroGet(`${API_BASE}/Reports/ProfitAndLoss`, {
       headers: _headers(token),
       params:  { fromDate: from, toDate: to, trackingCategoryID: COST_CENTRE_CATEGORY_ID },
     });
