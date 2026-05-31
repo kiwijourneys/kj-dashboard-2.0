@@ -45,6 +45,10 @@ app.use((err, req, res, _next) => {
   const status = err.status || err.response?.status || 500;
   const message = err.message || 'Internal server error';
   console.error(`[error] ${req.method} ${req.path}:`, message);
+  // Log Google API error details if present
+  if (err.response?.data) {
+    console.error(`[error] API response:`, JSON.stringify(err.response.data));
+  }
   if (config.nodeEnv !== 'production') {
     console.error(err.stack);
   }
