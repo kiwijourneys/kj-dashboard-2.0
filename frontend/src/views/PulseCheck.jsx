@@ -26,21 +26,21 @@ const INCOME_TYPE_COLORS = {
   'Other':      '#6b7280',
 };
 
-// Clickable legend that dims hidden series
-function ToggleLegend({ payload = [], hidden, onToggle }) {
+// Standalone clickable legend — rendered outside Recharts
+function ToggleLegend({ colorMap, hidden, onToggle }) {
   return (
-    <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-2">
-      {payload.map(entry => {
-        const isHidden = hidden.has(entry.value);
+    <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-2 mb-1">
+      {Object.entries(colorMap).map(([name, color]) => {
+        const isHidden = hidden.has(name);
         return (
           <button
-            key={entry.value}
-            onClick={() => onToggle(entry.value)}
-            className="flex items-center gap-1.5 text-xs transition-opacity"
+            key={name}
+            onClick={() => onToggle(name)}
+            className="flex items-center gap-1.5 text-xs transition-opacity select-none"
             style={{ opacity: isHidden ? 0.35 : 1 }}
           >
-            <span className="inline-block w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: entry.color }} />
-            <span style={{ color: '#6b7280', textDecoration: isHidden ? 'line-through' : 'none' }}>{entry.value}</span>
+            <span className="inline-block w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: color }} />
+            <span style={{ color: '#6b7280', textDecoration: isHidden ? 'line-through' : 'none' }}>{name}</span>
           </button>
         );
       })}
@@ -157,6 +157,7 @@ export default function PulseCheck() {
               return row;
             });
             return (
+              <ToggleLegend colorMap={COST_CENTRE_COLORS} hidden={hiddenCc} onToggle={toggleCc} />
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -167,7 +168,6 @@ export default function PulseCheck() {
                     labelStyle={{ color: '#3b3b3b', marginBottom: 4 }}
                     formatter={(v, name) => [`$${v.toLocaleString('en-NZ', { maximumFractionDigits: 0 })}`, name]}
                   />
-                  <Legend content={<ToggleLegend hidden={hiddenCc} onToggle={toggleCc} />} />
                   {centres.map((c, idx) => (
                     <Bar key={c} dataKey={c} stackId="rev" fill={COST_CENTRE_COLORS[c]}
                       hide={hiddenCc.has(c)}
@@ -295,6 +295,8 @@ export default function PulseCheck() {
           ) : (() => {
             const types = Object.keys(INCOME_TYPE_COLORS);
             return (
+              <>
+              <ToggleLegend colorMap={INCOME_TYPE_COLORS} hidden={hiddenInc} onToggle={toggleInc} />
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={incomeTypeData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -305,7 +307,6 @@ export default function PulseCheck() {
                     labelStyle={{ color: '#3b3b3b', marginBottom: 4 }}
                     formatter={(v, name) => [fmtNzd(v), name]}
                   />
-                  <Legend content={<ToggleLegend hidden={hiddenInc} onToggle={toggleInc} />} />
                   {types.map((t, idx) => (
                     <Bar key={t} dataKey={t} stackId="inc" fill={INCOME_TYPE_COLORS[t]}
                       hide={hiddenInc.has(t)}
@@ -313,6 +314,7 @@ export default function PulseCheck() {
                   ))}
                 </BarChart>
               </ResponsiveContainer>
+              </>
             );
           })()}
           <p className="mt-2 text-xs text-gray-400 italic">
