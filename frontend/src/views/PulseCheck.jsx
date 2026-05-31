@@ -59,7 +59,7 @@ function fmtNzd(v) {
 }
 
 export default function PulseCheck() {
-  const { queryParams } = useFilters();
+  const { queryParams, region } = useFilters();
 
   const xeroPnlQ     = useQuery({ queryKey: ['xeroPnl',     queryParams], queryFn: () => fetchXeroPnl(queryParams),          retry: 1 });
   const xeroMonthlyQ      = useQuery({ queryKey: ['xeroMonthly',      queryParams], queryFn: () => fetchXeroMonthly(queryParams),        retry: 1 });
@@ -151,7 +151,10 @@ export default function PulseCheck() {
             </div>
           ) : (() => {
             const { periods, data } = xeroCcQ.data;
-            const centres = Object.keys(COST_CENTRE_COLORS);
+            const allCentres = Object.keys(COST_CENTRE_COLORS);
+            // When a region is selected, only show that region's bar
+            const centres = region ? allCentres.filter(c => c === region) : allCentres;
+            const colorMap = Object.fromEntries(centres.map(c => [c, COST_CENTRE_COLORS[c]]));
             const chartData = periods.map((period, i) => {
               const row = { period };
               for (const c of centres) row[c] = data[c]?.[i] ?? 0;
@@ -159,7 +162,9 @@ export default function PulseCheck() {
             });
             return (
               <>
-                <ToggleLegend colorMap={COST_CENTRE_COLORS} hidden={hiddenCc} onToggle={toggleCc} />
+                {centres.length > 1 && (
+                  <ToggleLegend colorMap={colorMap} hidden={hiddenCc} onToggle={toggleCc} />
+                )}
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
