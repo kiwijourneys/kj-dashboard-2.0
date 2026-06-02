@@ -35,4 +35,16 @@ router.post('/weekly-summary', async (req, res, next) => {
   }
 });
 
+// POST /api/alerts/weekly-insights
+// Manually trigger the AI strategic insights report
+router.post('/weekly-insights', async (req, res, next) => {
+  try {
+    const scheduler = require('../scheduler');
+    const result = await scheduler.runWeeklyInsightsNow();
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

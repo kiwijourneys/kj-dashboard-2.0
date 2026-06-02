@@ -6,6 +6,7 @@ const ga4 = require('./services/ga4');
 const slack = require('./services/slack');
 const { computeSummaryKpis } = require('./services/metrics');
 const { invalidateNamespace, NAMESPACES } = require('./cache');
+const insights = require('./services/insights');
 
 // ── Alert configuration (loaded from environment / persisted settings) ────────
 // In production, these would come from a settings store. For now, env-based.
@@ -198,7 +199,31 @@ function init() {
     await runWeeklySummary().catch(err => console.error('[scheduler] Weekly summary error:', err));
   });
 
+  // Weekly AI insights: Monday 8:05am NZST (Sunday 20:05 UTC) — 5 min after summary
+  cron.schedule('5 20 * * 0', async () => {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      console.log('[scheduler] Skipping AI insights — ANTHROPIC_API_KEY not set');
+      return;
+    }
+    console.log('[scheduler] Running weekly AI insights...');
+    try {
+      const { startDate, endDate } = priorWeekRange();
+      const payload = await insights.runWeeklyInsights({ startDate, endDate });
+      await slack.sendWebhook(payload);
+      console.log('[scheduler] AI insights sent for', startDate, '→', endDate);
+    } catch (err) {
+      console.error('[scheduler] AI insights error:', err.message);
+    }
+  });
+
   console.log('[scheduler] Cron jobs registered');
 }
 
-module.exports = { init, runWeeklySummary, refreshAllCaches };
+async function runWeeklyInsightsNow() {
+  const { startDate, endDate } = priorWeekRange();
+  const payload = await insights.runWeeklyInsights({ startDate, endDate });
+  await slack.sendWebhook(payload);
+  return { ok: true, startDate, endDate };
+}
+
+module.exports = { init, runWeeklySummary, runWeeklyInsightsNow, refreshAllCaches };
