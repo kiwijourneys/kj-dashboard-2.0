@@ -36,11 +36,13 @@ router.post('/weekly-summary', async (req, res, next) => {
 });
 
 // POST /api/alerts/weekly-insights
-// Manually trigger the AI strategic insights report
+// Manually trigger the AI strategic insights report.
+// Pass { dryRun: true } in body to post raw data to Slack without calling Claude.
 router.post('/weekly-insights', async (req, res, next) => {
   try {
     const scheduler = require('../scheduler');
-    const result = await scheduler.runWeeklyInsightsNow();
+    const dryRun = req.body?.dryRun === true;
+    const result = await scheduler.runWeeklyInsightsNow({ dryRun });
     res.json(result);
   } catch (err) {
     next(err);

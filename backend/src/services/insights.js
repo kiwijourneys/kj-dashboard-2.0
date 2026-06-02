@@ -179,14 +179,38 @@ function insightsToSlackBlocks({ weekEnding, insightText }) {
 
 /**
  * Main entry point — collect data, generate insights, return Slack payload.
+ * dryRun: skip Claude call and post the raw data report to Slack instead,
+ * so you can copy it into Claude.ai manually.
  */
-async function runWeeklyInsights({ startDate, endDate }) {
-  console.log('[insights] Collecting data for', startDate, '→', endDate);
+async function runWeeklyInsights({ startDate, endDate, dryRun = false }) {
+  console.log('[insights] Collecting data for', startDate, '→', endDate, dryRun ? '(dry run)' : '');
   const data = await collectData({ startDate, endDate });
-
   const prompt = buildPrompt({ startDate, endDate, data });
-  console.log('[insights] Sending to Claude...');
 
+  if (dryRun) {
+    // Post the raw data report to Slack — copy into Claude.ai to get insights
+    const slackText = `*📋 Weekly Data Report — w/e ${endDate}*\n_Copy the text below into Claude.ai to get strategic insights._\n\n\`\`\`\n${prompt}\n\`\`\``;
+    return {
+      text: `📋 Weekly Data Report (dry run) — w/e ${endDate}`,
+      blocks: [
+        {
+          type: 'header',
+          text: { type: 'plain_text', text: `📋 Weekly Data Report — w/e ${endDate}` },
+        },
+        {
+          type: 'section',
+          text: { type: 'mrkdwn', text: `_Paste into Claude.ai to get strategic insights_` },
+        },
+        { type: 'divider' },
+        {
+          type: 'section',
+          text: { type: 'mrkdwn', text: `\`\`\`${prompt.slice(0, 2900)}\`\`\`` },
+        },
+      ],
+    };
+  }
+
+  console.log('[insights] Sending to Claude...');
   const insightText = await generateInsights(prompt);
   console.log('[insights] Got response, building Slack payload');
 

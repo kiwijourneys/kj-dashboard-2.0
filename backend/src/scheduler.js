@@ -219,11 +219,11 @@ function init() {
   console.log('[scheduler] Cron jobs registered');
 }
 
-async function runWeeklyInsightsNow() {
+async function runWeeklyInsightsNow({ dryRun = false } = {}) {
   const { startDate, endDate } = priorWeekRange();
-  const payload = await insights.runWeeklyInsights({ startDate, endDate });
+  const payload = await insights.runWeeklyInsights({ startDate, endDate, dryRun });
   await slack.sendWebhook(payload);
-  return { ok: true, startDate, endDate };
+  return { ok: true, startDate, endDate, dryRun };
 }
 
 module.exports = { init, runWeeklySummary, runWeeklyInsightsNow, refreshAllCaches };
