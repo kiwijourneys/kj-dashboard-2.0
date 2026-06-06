@@ -19,6 +19,7 @@ app.use('/api/meta',       require('./routes/meta'));
 app.use('/api/ga4',        require('./routes/ga4'));
 app.use('/api/alerts',     require('./routes/alerts'));
 app.use('/api/xero',       require('./routes/xero'));
+app.use('/api/webhooks',   require('./routes/webhooks'));
 
 // Health check + metadata
 app.get('/api/health', (req, res) => {
