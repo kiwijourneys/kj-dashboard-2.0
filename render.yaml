@@ -5,5 +5,5 @@ services:
     rootDir: backend
     buildCommand: npm install
     startCommand: node src/index.js
-    plan: starter
+    plan: free
     autoDeploy: true
