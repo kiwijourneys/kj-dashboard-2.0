@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: kj-dashboard-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node src/index.js
+    plan: starter
+    autoDeploy: true

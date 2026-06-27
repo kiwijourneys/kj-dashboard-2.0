@@ -18,7 +18,7 @@ const { getOrFetch, buildKey, NAMESPACES, recordSync } = require('../cache');
 const ENV_PATH = path.resolve(__dirname, '../../.env');
 
 /**
- * Write the rotated Xero refresh token back to .env (local) or Railway env vars
+ * Write the rotated Xero refresh token back to .env (local) or Render env vars
  * (production). Xero invalidates the previous refresh token the moment it issues
  * a new one, so if the backend restarts before we persist it, the chain is broken.
  */
@@ -37,51 +37,42 @@ function _persistRefreshToken(newToken) {
     fs.writeFileSync(ENV_PATH, env, 'utf8');
     console.log('[xero] Refresh token persisted to .env');
   } catch (_) {
-    // Expected on Railway where filesystem is ephemeral — fall through to API update
+    // Expected on Render where filesystem is ephemeral — fall through to API update
   }
 
-  // On Railway, update the env var via the Railway API so restarts use the new token
-  const railwayToken = process.env.RAILWAY_TOKEN;
-  const projectId    = process.env.RAILWAY_PROJECT_ID;
-  const envId        = process.env.RAILWAY_ENVIRONMENT_ID;
-  const serviceId    = process.env.RAILWAY_SERVICE_ID;
+  // On Render, update the env var via the Render API so restarts use the new token.
+  // PUT https://api.render.com/v1/services/:serviceId/env-vars/:envVarKey
+  const renderApiKey = process.env.RENDER_API_KEY;
+  const serviceId     = process.env.RENDER_SERVICE_ID;
 
-  if (railwayToken && projectId && envId && serviceId) {
-    const mutation = JSON.stringify({
-      query: `mutation { variableUpsert(input: {
-        projectId: "${projectId}",
-        environmentId: "${envId}",
-        serviceId: "${serviceId}",
-        name: "XERO_REFRESH_TOKEN",
-        value: "${newToken}"
-      }) }`,
-    });
+  if (renderApiKey && serviceId) {
+    const body = JSON.stringify({ value: newToken });
 
     const req = require('https').request(
       {
-        hostname: 'backboard.railway.app',
-        path:     '/graphql/v2',
-        method:   'POST',
+        hostname: 'api.render.com',
+        path:     `/v1/services/${serviceId}/env-vars/XERO_REFRESH_TOKEN`,
+        method:   'PUT',
         headers:  {
           'Content-Type':  'application/json',
-          'Authorization': `Bearer ${railwayToken}`,
+          'Accept':        'application/json',
+          'Authorization': `Bearer ${renderApiKey}`,
         },
       },
       (res) => {
-        let body = '';
-        res.on('data', d => body += d);
+        let resBody = '';
+        res.on('data', d => resBody += d);
         res.on('end', () => {
-          const parsed = JSON.parse(body);
-          if (parsed.errors) {
-            console.error('[xero] Railway API error persisting token:', JSON.stringify(parsed.errors));
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            console.log('[xero] Refresh token persisted to Render env vars');
           } else {
-            console.log('[xero] Refresh token persisted to Railway env vars');
+            console.error('[xero] Render API error persisting token:', res.statusCode, resBody);
           }
         });
       }
     );
-    req.on('error', e => console.error('[xero] Railway API request failed:', e.message));
-    req.write(mutation);
+    req.on('error', e => console.error('[xero] Render API request failed:', e.message));
+    req.write(body);
     req.end();
   }
 }
