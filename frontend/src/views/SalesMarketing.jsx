@@ -402,7 +402,14 @@ export default function SalesMarketing() {
         })()}
 
         <div className="grid grid-cols-1 gap-4 mt-4">
-          <MetricTable title="Cost Per Enquiry (blended — total ad spend ÷ enquiries)" rows={costPerEnquiryRows} loading={mpLoading} />
+          <div>
+            <MetricTable title="Cost Per Enquiry (by tour-type-tagged ad spend)" rows={costPerEnquiryRows} loading={mpLoading} />
+            {!mpLoading && mp.costPerEnquiry.unclassifiedSpendNzd > 0 && (
+              <p className="mt-2 text-xs text-gray-400 italic">
+                {fmtNzd(mp.costPerEnquiry.unclassifiedSpendNzd)} of ad spend is on campaigns not tagged Multi Day or Single Day (Brand, Trails-only, Pmax, AU-general) and isn't included in either figure above.
+              </p>
+            )}
+          </div>
           <MetricTable title="Cost &amp; ROI" rows={costRoiRows} loading={mpLoading} />
           <MetricTable title="Lead Quality" rows={leadQualityRows} loading={mpLoading} />
         </div>
