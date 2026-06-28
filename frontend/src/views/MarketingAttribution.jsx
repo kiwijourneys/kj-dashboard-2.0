@@ -97,10 +97,8 @@ export default function MarketingAttribution() {
   const mp = marketingPerfQ.data;
   const mpLoading = marketingPerfQ.isLoading || !mp;
   const attributedRows = mpLoading ? [] : [
-    { label: '$/Attributed Meta MD Enquiries',  fmt: v => fmtCurrency(v, 0), total: mp.attributedPerformance.metaMdEnquiries.total, byDepot: mp.attributedPerformance.metaMdEnquiries.byDepot },
-    { label: '$/Attributed GAds MD Enquiries',  fmt: v => fmtCurrency(v, 0), total: mp.attributedPerformance.gadsMdEnquiries.total, byDepot: mp.attributedPerformance.gadsMdEnquiries.byDepot },
-    { label: '$/Attributed Meta SD Enquiries',  fmt: v => fmtCurrency(v, 0), total: mp.attributedPerformance.metaSdEnquiries.total, byDepot: mp.attributedPerformance.metaSdEnquiries.byDepot },
-    { label: '$/Attributed GAds SD Enquiries',  fmt: v => fmtCurrency(v, 0), total: mp.attributedPerformance.gadsSdEnquiries.total, byDepot: mp.attributedPerformance.gadsSdEnquiries.byDepot },
+    { label: '$/Attributed Meta Enquiries', fmt: v => fmtCurrency(v, 0), total: mp.attributedPerformance.metaEnquiries.total, byDepot: mp.attributedPerformance.metaEnquiries.byDepot },
+    { label: '$/Attributed GAds Enquiries', fmt: v => fmtCurrency(v, 0), total: mp.attributedPerformance.gadsEnquiries.total, byDepot: mp.attributedPerformance.gadsEnquiries.byDepot },
     { label: '$/Attributed Meta Leads/Results', fmt: v => fmtCurrency(v, 2), total: mp.attributedPerformance.metaLeadsResults.total, byDepot: mp.attributedPerformance.metaLeadsResults.byDepot },
     { label: '$/Attributed GAds Conversions',   fmt: v => fmtCurrency(v, 2), total: mp.attributedPerformance.gadsConversions.total, byDepot: mp.attributedPerformance.gadsConversions.byDepot },
   ];

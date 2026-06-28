@@ -114,26 +114,18 @@ async function getMarketingPerformance({ startDate, endDate } = {}) {
   };
 
   // ── Attributed Performance (channel-specific via HubSpot source tracking) ──
+  // Combines MD+SD attributed enquiry counts per channel, divided by that
+  // channel's own full spend — avoids double-counting spend across MD/SD rows.
   const attributedPerformance = {
-    metaMdEnquiries: {
-      total: cpl(metaPerf.total?.spendNzd, attributedMd.total.meta),
+    metaEnquiries: {
+      total: cpl(metaPerf.total?.spendNzd, attributedMd.total.meta + attributedSd.total.meta),
       byDepot: Object.fromEntries(ALL_DEPOTS.map(d =>
-        [d, cpl(metaPerf.byDepot[d]?.spendNzd, attributedMd.byDepot[d].meta)])),
+        [d, cpl(metaPerf.byDepot[d]?.spendNzd, attributedMd.byDepot[d].meta + attributedSd.byDepot[d].meta)])),
     },
-    gadsMdEnquiries: {
-      total: cpl(gadsPerf.total?.spendNzd, attributedMd.total.gads),
+    gadsEnquiries: {
+      total: cpl(gadsPerf.total?.spendNzd, attributedMd.total.gads + attributedSd.total.gads),
       byDepot: Object.fromEntries(ALL_DEPOTS.map(d =>
-        [d, cpl(gadsPerf.byDepot[d]?.spendNzd, attributedMd.byDepot[d].gads)])),
-    },
-    metaSdEnquiries: {
-      total: cpl(metaPerf.total?.spendNzd, attributedSd.total.meta),
-      byDepot: Object.fromEntries(ALL_DEPOTS.map(d =>
-        [d, cpl(metaPerf.byDepot[d]?.spendNzd, attributedSd.byDepot[d].meta)])),
-    },
-    gadsSdEnquiries: {
-      total: cpl(gadsPerf.total?.spendNzd, attributedSd.total.gads),
-      byDepot: Object.fromEntries(ALL_DEPOTS.map(d =>
-        [d, cpl(gadsPerf.byDepot[d]?.spendNzd, attributedSd.byDepot[d].gads)])),
+        [d, cpl(gadsPerf.byDepot[d]?.spendNzd, attributedMd.byDepot[d].gads + attributedSd.byDepot[d].gads)])),
     },
     metaLeadsResults: {
       total: metaPerf.total?.costPerResultNzd ?? null,
