@@ -24,6 +24,7 @@ import PasswordGate from './components/PasswordGate';
 // Views (lazy-loaded per view)
 import PulseCheck         from './views/PulseCheck';
 import SalesMarketing     from './views/SalesMarketing';
+import MarketingPerformance from './views/MarketingPerformance';
 import PaidChannels       from './views/PaidChannels';
 import CampaignDetail     from './views/CampaignDetail';
 import FunnelView         from './views/FunnelView';
@@ -32,7 +33,8 @@ import SlackAlertConfig   from './views/SlackAlertConfig';
 
 const NAV = [
   { path: '/pulse',     label: 'Pulse Check' },
-  { path: '/sales',     label: 'Sales & Marketing' },
+  { path: '/sales',     label: 'Sales' },
+  { path: '/marketing', label: 'Marketing' },
   { path: '/channels',  label: 'Paid Channels' },
   { path: '/campaigns', label: 'Campaigns' },
   { path: '/funnel',    label: 'Funnel' },
@@ -79,6 +81,7 @@ export default function App() {
                 <Route path="/"          element={<Navigate to="/pulse" replace />} />
                 <Route path="/pulse"     element={<PulseCheck />} />
                 <Route path="/sales"     element={<SalesMarketing />} />
+                <Route path="/marketing" element={<MarketingPerformance />} />
                 <Route path="/summary"   element={<Navigate to="/pulse" replace />} />
                 <Route path="/channels"  element={<PaidChannels />} />
                 <Route path="/campaigns" element={<CampaignDetail />} />

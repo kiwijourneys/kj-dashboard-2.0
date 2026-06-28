@@ -58,6 +58,10 @@ export const fetchXeroMonthly      = (params) => api.get('/xero/monthly',       
 export const fetchXeroCostCentres  = (params) => api.get('/xero/cost-centre-breakdown', { params: toQs(params) }).then(r => r.data);
 export const fetchXeroIncomeByPeriod = (params) => api.get('/xero/income-by-period',    { params: toQs(params) }).then(r => r.data);
 
+// ── Marketing performance dashboard ──────────────────────────────────────────
+export const fetchMarketingPerformance = (params) =>
+  api.get('/marketing/performance', { params: toQs(params) }).then(r => r.data);
+
 // ── Alerts / config ───────────────────────────────────────────────────────────
 export const fetchAlertConfig    = ()       => api.get('/alerts/config').then(r => r.data);
 export const testSlack           = ()       => api.post('/alerts/test-slack').then(r => r.data);
