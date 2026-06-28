@@ -32,14 +32,14 @@ import OrganicSEO         from './views/OrganicSEO';
 import SlackAlertConfig   from './views/SlackAlertConfig';
 
 const NAV = [
-  { path: '/pulse',     label: 'Pulse Check' },
-  { path: '/sales',     label: 'Sales' },
+  { path: '/pulse',       label: 'Pulse Check' },
+  { path: '/sales',       label: 'Marketing' },
   { path: '/attribution', label: 'Marketing Attribution' },
-  { path: '/channels',  label: 'Paid Channels' },
-  { path: '/campaigns', label: 'Campaigns' },
-  { path: '/funnel',    label: 'Funnel' },
-  { path: '/organic',   label: 'Organic / SEO' },
-  { path: '/alerts',    label: 'Slack Alerts' },
+  { path: '/funnel',      label: 'Sales Pipeline' },
+  { path: '/channels',    label: 'Paid Channels' },
+  { path: '/campaigns',   label: 'Campaigns' },
+  { path: '/organic',     label: 'Organic / SEO' },
+  { path: '/alerts',      label: 'Slack Alerts' },
 ];
 
 export default function App() {

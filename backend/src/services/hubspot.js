@@ -461,6 +461,7 @@ const MD_STAGE_ORDER = [
 
 const MD_BOOKING_ADMIN_IDX = MD_STAGE_ORDER.length - 1;
 const MD_TOUR_DISCOVERY_IDX = 2; // "Opportunity" threshold for lead-to-opportunity rate
+const MD_DEPOSIT_RECEIVED_IDX = 5; // "Won" threshold — same milestone CVR uses, see getOpportunityRates
 
 const MD_STAGE_INDEX_MAP = {};
 MD_STAGE_ORDER.forEach((s, i) => { MD_STAGE_INDEX_MAP[s.id] = i; });
@@ -886,7 +887,11 @@ async function getOpportunityRates({ startDate, endDate } = {}) {
       const p = deal.properties;
       const depth = mdStageDepth(p.dealstage);
       const isOpp = depth >= MD_TOUR_DISCOVERY_IDX;
-      const isWon = depth === MD_BOOKING_ADMIN_IDX && p.dealstage !== MD_OPS_CL && p.dealstage !== MD_CANCELLED;
+      // "Won" = Deposit Received or beyond — the same milestone CVR uses (cumulativeCounts[5]
+      // in getMultiDayFunnel). Previously this checked depth === MD_BOOKING_ADMIN_IDX (Booking
+      // Admin Complete), which only happens after the tour has run — for any recent period that
+      // made Opportunity-to-Close Rate read far lower than CVR despite measuring the same funnel.
+      const isWon = depth >= MD_DEPOSIT_RECEIVED_IDX;
       const regions = normaliseRegions(p.location, p.hubspot_owner_id).filter(r => ALL_DEPOTS.includes(r));
 
       totals.totalEnquiries++;

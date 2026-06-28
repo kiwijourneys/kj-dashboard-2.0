@@ -55,10 +55,6 @@ function fmtCurrency(v, dp = 0) {
   if (v === null || v === undefined) return '—';
   return `$${Number(v).toLocaleString('en-NZ', { minimumFractionDigits: dp, maximumFractionDigits: dp })}`;
 }
-function fmtRoas(v) {
-  if (v === null || v === undefined) return '—';
-  return `${Number(v).toFixed(2)}x`;
-}
 
 function toArr(v) {
   if (Array.isArray(v)) return v;
@@ -339,12 +335,6 @@ export default function SalesMarketing() {
     { label: '$/SD Enquiry', fmt: v => fmtCurrency(v, 0), total: mp.costPerEnquiry.sd.total, byDepot: mp.costPerEnquiry.sd.byDepot },
   ];
 
-  const costRoiRows = mpLoading ? [] : [
-    { label: 'Total Ad Spend', fmt: v => fmtCurrency(v, 0), total: mp.costRoi.totalAdSpend.total, byDepot: mp.costRoi.totalAdSpend.byDepot },
-    { label: 'ROAS MD',        fmt: fmtRoas,                total: mp.costRoi.roasMd.total,        byDepot: mp.costRoi.roasMd.byDepot },
-    { label: 'ROAS SD',        fmt: fmtRoas,                total: mp.costRoi.roasSd.total,        byDepot: mp.costRoi.roasSd.byDepot },
-  ];
-
   return (
     <div className="p-6 space-y-6">
 
@@ -430,7 +420,6 @@ export default function SalesMarketing() {
               </p>
             )}
           </div>
-          <MetricTable title="Cost &amp; ROI" rows={costRoiRows} loading={mpLoading} />
         </div>
       </div>
 

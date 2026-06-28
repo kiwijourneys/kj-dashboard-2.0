@@ -10,7 +10,7 @@
 const hubspot  = require('./hubspot');
 const meta     = require('./meta');
 const googleAds = require('./googleAds');
-const { cpl, roas } = require('./metrics');
+const { cpl } = require('./metrics');
 
 const { ALL_DEPOTS } = hubspot;
 
@@ -70,16 +70,6 @@ async function getMarketingPerformance({ startDate, endDate } = {}) {
 
   const mdEnquiry = bucketDeals(mdLeads.deals);
   const sdEnquiry = bucketDeals(sdLeads.deals);
-  const mdRevenue = bucketDeals(mdClosed.deals, d => d.amount || 0);
-  const sdRevenue = bucketDeals(sdClosed.deals, d => d.amount || 0);
-
-  // ── Total Ad Spend (Meta + Google Ads combined) ─────────────────────────────
-  const totalAdSpend = {
-    total: (metaPerf.total?.spendNzd || 0) + (gadsPerf.total?.spendNzd || 0),
-    byDepot: Object.fromEntries(ALL_DEPOTS.map(d => [
-      d, (metaPerf.byDepot[d]?.spendNzd || 0) + (gadsPerf.byDepot[d]?.spendNzd || 0),
-    ])),
-  };
 
   // ── Cost Per Enquiry (real spend attribution by campaign/adset tour-type tag) ─
   // Google campaigns and Meta adsets are tagged with tour type (e.g. "SEM - NZ -
@@ -136,21 +126,6 @@ async function getMarketingPerformance({ startDate, endDate } = {}) {
     },
   };
 
-  // ── Cost & ROI ───────────────────────────────────────────────────────────────
-  const costRoi = {
-    totalAdSpend,
-    roasMd: {
-      total: roas(mdRevenue.total.value, totalAdSpend.total),
-      byDepot: Object.fromEntries(ALL_DEPOTS.map(d =>
-        [d, roas(mdRevenue.byDepot[d].value, totalAdSpend.byDepot[d])])),
-    },
-    roasSd: {
-      total: roas(sdRevenue.total.value, totalAdSpend.total),
-      byDepot: Object.fromEntries(ALL_DEPOTS.map(d =>
-        [d, roas(sdRevenue.byDepot[d].value, totalAdSpend.byDepot[d])])),
-    },
-  };
-
   // ── Lead Quality (MD only — SD is mostly instant on-site conversions, not a sales funnel) ──
   const leadQuality = {
     leadToOpportunityRateMd:  { total: oppRatesMd.total.leadToOpportunityRate,  byDepot: Object.fromEntries(ALL_DEPOTS.map(d => [d, oppRatesMd.byDepot[d].leadToOpportunityRate])) },
@@ -172,7 +147,6 @@ async function getMarketingPerformance({ startDate, endDate } = {}) {
     depots: ALL_DEPOTS,
     costPerEnquiry,
     attributedPerformance,
-    costRoi,
     leadQuality,
     pipelineHealth,
   };

@@ -117,7 +117,12 @@ export default function FunnelView() {
         </div>
 
         <div className="grid grid-cols-1 gap-4 mt-4">
-          <MetricTable title="Lead Quality" rows={leadQualityRows} loading={mpLoading} />
+          <MetricTable
+            title="Lead Quality"
+            rows={leadQualityRows}
+            loading={mpLoading}
+            note="Lead-to-Opportunity Rate = enquiries that reached a Tour Discovery call ÷ total enquiries created. Opportunity-to-Close Rate = enquiries that reached Deposit Received ÷ those that reached Tour Discovery — the same 'won' milestone CVR above uses, so this reads higher than CVR (it's conditioning on a narrower, already-engaged pool rather than all raw enquiries)."
+          />
           <MetricTable title="Pipeline Health" rows={pipelineHealthRows} loading={mpLoading} />
         </div>
       </div>

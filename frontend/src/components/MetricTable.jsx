@@ -3,10 +3,11 @@ import React from 'react';
 const DEFAULT_DEPOTS = ['Nelson', 'West Coast', 'Central Otago', 'Kawarau Gorge'];
 
 // rows: [{ label, fmt, total, byDepot }]
-export default function MetricTable({ title, rows, loading, depots = DEFAULT_DEPOTS }) {
+export default function MetricTable({ title, rows, loading, depots = DEFAULT_DEPOTS, note }) {
   return (
     <div className="card">
       {title && <h3 className="text-sm font-medium text-gray-600 mb-3">{title}</h3>}
+      {note && <p className="text-xs text-gray-400 italic mb-3">{note}</p>}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
