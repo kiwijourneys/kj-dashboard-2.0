@@ -5,7 +5,7 @@ import {
   fetchSummary, fetchGoogleDaily, fetchMetaDaily, fetchMetaDepotDaily,
   fetchMdLeads, fetchSdLeads, fetchMdClosed, fetchSdClosed,
   fetchMdActual, fetchSdActual, fetchGa4RezdyRev, fetchGa4BikeRental,
-  fetchGoogleDepotDaily, fetchXeroPnl, fetchXeroMonthly, fetchXeroIncomeByPeriod, fetchMdFunnel, fetchMdBookedRevenue,
+  fetchGoogleDepotDaily, fetchXeroPnl, fetchXeroMonthly, fetchXeroIncomeByPeriod, fetchMdBookedRevenue,
   fetchGa4Daily, fetchMarketingPerformance,
 } from '../api';
 import KpiCard from '../components/KpiCard';
@@ -55,21 +55,9 @@ function fmtCurrency(v, dp = 0) {
   if (v === null || v === undefined) return '—';
   return `$${Number(v).toLocaleString('en-NZ', { minimumFractionDigits: dp, maximumFractionDigits: dp })}`;
 }
-function fmtPercent(v, dp = 1) {
-  if (v === null || v === undefined) return '—';
-  return `${Number(v).toFixed(dp)}%`;
-}
 function fmtRoas(v) {
   if (v === null || v === undefined) return '—';
   return `${Number(v).toFixed(2)}x`;
-}
-function fmtNumMetric(v) {
-  if (v === null || v === undefined) return '—';
-  return Number(v).toLocaleString('en-NZ', { maximumFractionDigits: 0 });
-}
-function fmtDays(v) {
-  if (v === null || v === undefined) return '—';
-  return `${Number(v).toFixed(1)}d`;
 }
 
 function toArr(v) {
@@ -110,7 +98,6 @@ export default function SalesMarketing() {
   const metaDepotSpendQ = useQuery({ queryKey: ['metaDepotDailySpend', queryParams], queryFn: () => fetchMetaDepotDaily(queryParams) });
   const xeroPnlQ       = useQuery({ queryKey: ['xeroPnl',         queryParams], queryFn: () => fetchXeroPnl(queryParams),      retry: 1 });
   const xeroMonthlyQ   = useQuery({ queryKey: ['xeroMonthly',     queryParams], queryFn: () => fetchXeroMonthly(queryParams),  retry: 1 });
-  const mdFunnelQ          = useQuery({ queryKey: ['mdFunnel',          queryParams], queryFn: () => fetchMdFunnel(queryParams) });
   const mdBookedRevQ       = useQuery({ queryKey: ['mdBookedRev',       queryParams], queryFn: () => fetchMdBookedRevenue(queryParams) });
   const ga4DailyQ          = useQuery({ queryKey: ['ga4Daily',          queryParams], queryFn: () => fetchGa4Daily(queryParams) });
   const xeroIncomeByPeriodQ = useQuery({ queryKey: ['xeroIncomeByPeriod', queryParams], queryFn: () => fetchXeroIncomeByPeriod(queryParams), retry: 1,
@@ -358,20 +345,6 @@ export default function SalesMarketing() {
     { label: 'ROAS SD',        fmt: fmtRoas,                total: mp.costRoi.roasSd.total,        byDepot: mp.costRoi.roasSd.byDepot },
   ];
 
-  const leadQualityRows = mpLoading ? [] : [
-    { label: 'Lead-to-Opportunity Rate (MD)',  fmt: fmtPercent, total: mp.leadQuality.leadToOpportunityRateMd.total,  byDepot: mp.leadQuality.leadToOpportunityRateMd.byDepot },
-    { label: 'Opportunity-to-Close Rate (MD)', fmt: fmtPercent, total: mp.leadQuality.opportunityToCloseRateMd.total, byDepot: mp.leadQuality.opportunityToCloseRateMd.byDepot },
-  ];
-
-  const pipelineHealthRows = mpLoading ? [] : [
-    { label: 'Total Open Opportunities (MD)', fmt: v => fmtNumMetric(v), total: mp.pipelineHealth.openOpportunitiesMd.total, byDepot: mp.pipelineHealth.openOpportunitiesMd.byDepot },
-    { label: 'Total Open Opportunities (SD)', fmt: v => fmtNumMetric(v), total: mp.pipelineHealth.openOpportunitiesSd.total, byDepot: mp.pipelineHealth.openOpportunitiesSd.byDepot },
-    { label: 'Pipeline Value — MD',           fmt: v => fmtCurrency(v, 0), total: mp.pipelineHealth.pipelineValueMd.total, byDepot: mp.pipelineHealth.pipelineValueMd.byDepot },
-    { label: 'Pipeline Value — SD',           fmt: v => fmtCurrency(v, 0), total: mp.pipelineHealth.pipelineValueSd.total, byDepot: mp.pipelineHealth.pipelineValueSd.byDepot },
-    { label: 'Avg. Deal Cycle Length — MD',   fmt: fmtDays, total: mp.pipelineHealth.avgDealCycleMd.total, byDepot: mp.pipelineHealth.avgDealCycleMd.byDepot },
-    { label: 'Avg. Deal Cycle Length — SD',   fmt: fmtDays, total: mp.pipelineHealth.avgDealCycleSd.total, byDepot: mp.pipelineHealth.avgDealCycleSd.byDepot },
-  ];
-
   return (
     <div className="p-6 space-y-6">
 
@@ -400,9 +373,57 @@ export default function SalesMarketing() {
           );
         })()}
 
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+          {/* Ad Spend vs Leads */}
+          <div className="card">
+            <h3 className="text-sm font-medium text-gray-600 mb-4">Ad Spend vs Enquiries (NZD)</h3>
+            {spendChartData.length === 0 ? (
+              <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <ComposedChart data={spendChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fill: '#6b7280', fontSize: 11 }} />
+                  <YAxis yAxisId="left"  tickFormatter={v => v >= 1000 ? `$${(v/1000).toFixed(1)}k` : `$${v.toFixed(0)}`} tick={{ fill: '#6b7280', fontSize: 11 }} />
+                  <YAxis yAxisId="right" orientation="right" tick={{ fill: '#6b7280', fontSize: 11 }} allowDecimals={false} />
+                  <Tooltip labelFormatter={fmtDate} formatter={(v, name) => name === 'Enquiries' ? [v, name] : [fmtNzd(v), name]} contentStyle={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: 12, color: '#6b7280' }} />
+                  <Bar yAxisId="left" dataKey="google" name="Google Ads" fill={COLORS.google} stackId="spend" />
+                  <Bar yAxisId="left" dataKey="meta"   name="Meta Ads"   fill={COLORS.meta}   stackId="spend" />
+                  <Line yAxisId="right" type="monotone" dataKey="leads" name="Enquiries" stroke="#a78bfa" dot={false} strokeWidth={2} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          {/* Leads over time */}
+          <div className="card">
+            <h3 className="text-sm font-medium text-gray-600 mb-4">Enquiries Over Time</h3>
+            {leadsChartData.length === 0 ? (
+              <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={leadsChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fill: '#6b7280', fontSize: 11 }} />
+                  <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} allowDecimals={false} />
+                  <Tooltip labelFormatter={fmtDate} contentStyle={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: 12, color: '#6b7280' }} />
+                  <Line type="monotone" dataKey="multiDay"  name="Multi Day"  stroke={COLORS.multiDay}  dot={false} strokeWidth={2} />
+                  <Line type="monotone" dataKey="singleDay" name="Single Day" stroke={COLORS.singleDay} dot={false} strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 gap-4 mt-4">
           <div>
-            <MetricTable title="Cost Per Enquiry (by tour-type-tagged ad spend)" rows={costPerEnquiryRows} loading={mpLoading} />
+            <MetricTable
+              title={<>Cost Per Enquiry (by tour-type-tagged ad spend) - <span className="text-red-500 font-bold">BETA</span></>}
+              rows={costPerEnquiryRows}
+              loading={mpLoading}
+            />
             {!mpLoading && mp.costPerEnquiry.unclassifiedSpendNzd > 0 && (
               <p className="mt-2 text-xs text-gray-400 italic">
                 {fmtNzd(mp.costPerEnquiry.unclassifiedSpendNzd)} of ad spend is on campaigns not tagged Multi Day or Single Day (Brand, Trails-only, Pmax, AU-general) and isn't included in either figure above.
@@ -410,110 +431,11 @@ export default function SalesMarketing() {
             )}
           </div>
           <MetricTable title="Cost &amp; ROI" rows={costRoiRows} loading={mpLoading} />
-          <MetricTable title="Lead Quality" rows={leadQualityRows} loading={mpLoading} />
-        </div>
-      </div>
-
-      {/* ── MD Enquiry Conversion ────────────────────────────────────────── */}
-      <div>
-        <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-3">
-          Multi-Day Enquiry Conversion
-          <span className="normal-case font-normal text-gray-600 ml-1">(anchored by enquiry create date)</span>
-        </h2>
-        {(() => {
-          const f = mdFunnelQ.data;
-          const total      = f?.totalEnquiries ?? null;
-          const closedLost = f?.closedLost      ?? null;
-          // stage[5] = Deposit Received / Won (cumulative = all won + ops pipeline deals)
-          const closedWon  = f?.stages?.[5]?.count ?? null;
-          const inProgress = (total !== null && closedWon !== null && closedLost !== null)
-            ? total - closedWon - closedLost
-            : null;
-          const cvr = (closedWon !== null && total > 0) ? (closedWon / total) * 100 : null;
-
-          return (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <KpiCard
-                label="CVR"
-                value={cvr}
-                format="percent"
-                loading={mdFunnelQ.isLoading}
-                subtitle="Deposit Received ÷ total enquiries created"
-              />
-              <KpiCard
-                label="In Progress"
-                value={inProgress}
-                format="number"
-                loading={mdFunnelQ.isLoading}
-                subtitle="Active enquiries not yet won or lost"
-              />
-              <KpiCard
-                label="Closed Won"
-                value={closedWon}
-                format="number"
-                loading={mdFunnelQ.isLoading}
-                subtitle="Reached Deposit Received / Won or beyond"
-              />
-              <KpiCard
-                label="Closed Lost"
-                value={closedLost}
-                format="number"
-                loading={mdFunnelQ.isLoading}
-                subtitle="Marked Closed Lost in HubSpot"
-              />
-            </div>
-          );
-        })()}
-
-        <div className="mt-4">
-          <MetricTable title="Pipeline Health" rows={pipelineHealthRows} loading={mpLoading} />
         </div>
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-        {/* Ad Spend vs Leads */}
-        <div className="card">
-          <h3 className="text-sm font-medium text-gray-600 mb-4">Ad Spend vs Enquiries (NZD)</h3>
-          {spendChartData.length === 0 ? (
-            <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>
-          ) : (
-            <ResponsiveContainer width="100%" height={200}>
-              <ComposedChart data={spendChartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fill: '#6b7280', fontSize: 11 }} />
-                <YAxis yAxisId="left"  tickFormatter={v => v >= 1000 ? `$${(v/1000).toFixed(1)}k` : `$${v.toFixed(0)}`} tick={{ fill: '#6b7280', fontSize: 11 }} />
-                <YAxis yAxisId="right" orientation="right" tick={{ fill: '#6b7280', fontSize: 11 }} allowDecimals={false} />
-                <Tooltip labelFormatter={fmtDate} formatter={(v, name) => name === 'Enquiries' ? [v, name] : [fmtNzd(v), name]} contentStyle={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }} />
-                <Legend wrapperStyle={{ fontSize: 12, color: '#6b7280' }} />
-                <Bar yAxisId="left" dataKey="google" name="Google Ads" fill={COLORS.google} stackId="spend" />
-                <Bar yAxisId="left" dataKey="meta"   name="Meta Ads"   fill={COLORS.meta}   stackId="spend" />
-                <Line yAxisId="right" type="monotone" dataKey="leads" name="Enquiries" stroke="#a78bfa" dot={false} strokeWidth={2} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-
-        {/* Leads over time */}
-        <div className="card">
-          <h3 className="text-sm font-medium text-gray-600 mb-4">Enquiries Over Time</h3>
-          {leadsChartData.length === 0 ? (
-            <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>
-          ) : (
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={leadsChartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fill: '#6b7280', fontSize: 11 }} />
-                <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} allowDecimals={false} />
-                <Tooltip labelFormatter={fmtDate} contentStyle={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }} />
-                <Legend wrapperStyle={{ fontSize: 12, color: '#6b7280' }} />
-                <Line type="monotone" dataKey="multiDay"  name="Multi Day"  stroke={COLORS.multiDay}  dot={false} strokeWidth={2} />
-                <Line type="monotone" dataKey="singleDay" name="Single Day" stroke={COLORS.singleDay} dot={false} strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </div>
 
         {/* Web Visits vs Ad Spend */}
         <div className="card">

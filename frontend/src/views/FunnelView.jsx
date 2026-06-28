@@ -1,8 +1,27 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useFilters } from '../context/FilterContext';
-import { fetchMdFunnel } from '../api';
+import { fetchMdFunnel, fetchMarketingPerformance } from '../api';
 import ErrorWidget from '../components/ErrorWidget';
+import KpiCard from '../components/KpiCard';
+import MetricTable from '../components/MetricTable';
+
+function fmtPercent(v, dp = 1) {
+  if (v === null || v === undefined) return '—';
+  return `${Number(v).toFixed(dp)}%`;
+}
+function fmtCurrency(v, dp = 0) {
+  if (v === null || v === undefined) return '—';
+  return `$${Number(v).toLocaleString('en-NZ', { minimumFractionDigits: dp, maximumFractionDigits: dp })}`;
+}
+function fmtNumMetric(v) {
+  if (v === null || v === undefined) return '—';
+  return Number(v).toLocaleString('en-NZ', { maximumFractionDigits: 0 });
+}
+function fmtDays(v) {
+  if (v === null || v === undefined) return '—';
+  return `${Number(v).toFixed(1)}d`;
+}
 
 export default function FunnelView() {
   const { queryParams } = useFilters();
@@ -10,10 +29,33 @@ export default function FunnelView() {
     queryKey: ['mdFunnel', queryParams],
     queryFn: () => fetchMdFunnel(queryParams),
   });
+  const marketingPerfQ = useQuery({
+    queryKey: ['marketingPerformance', queryParams.startDate, queryParams.endDate],
+    queryFn: () => fetchMarketingPerformance({ startDate: queryParams.startDate, endDate: queryParams.endDate }),
+    enabled: !!(queryParams.startDate && queryParams.endDate),
+    retry: 1,
+  });
 
   if (funnelQ.isError) {
     return <div className="p-6"><ErrorWidget message={funnelQ.error?.message} onRetry={() => funnelQ.refetch()} /></div>;
   }
+
+  const mp = marketingPerfQ.data;
+  const mpLoading = marketingPerfQ.isLoading || !mp;
+
+  const leadQualityRows = mpLoading ? [] : [
+    { label: 'Lead-to-Opportunity Rate (MD)',  fmt: fmtPercent, total: mp.leadQuality.leadToOpportunityRateMd.total,  byDepot: mp.leadQuality.leadToOpportunityRateMd.byDepot },
+    { label: 'Opportunity-to-Close Rate (MD)', fmt: fmtPercent, total: mp.leadQuality.opportunityToCloseRateMd.total, byDepot: mp.leadQuality.opportunityToCloseRateMd.byDepot },
+  ];
+
+  const pipelineHealthRows = mpLoading ? [] : [
+    { label: 'Total Open Opportunities (MD)', fmt: v => fmtNumMetric(v), total: mp.pipelineHealth.openOpportunitiesMd.total, byDepot: mp.pipelineHealth.openOpportunitiesMd.byDepot },
+    { label: 'Total Open Opportunities (SD)', fmt: v => fmtNumMetric(v), total: mp.pipelineHealth.openOpportunitiesSd.total, byDepot: mp.pipelineHealth.openOpportunitiesSd.byDepot },
+    { label: 'Pipeline Value — MD',           fmt: v => fmtCurrency(v, 0), total: mp.pipelineHealth.pipelineValueMd.total, byDepot: mp.pipelineHealth.pipelineValueMd.byDepot },
+    { label: 'Pipeline Value — SD',           fmt: v => fmtCurrency(v, 0), total: mp.pipelineHealth.pipelineValueSd.total, byDepot: mp.pipelineHealth.pipelineValueSd.byDepot },
+    { label: 'Avg. Deal Cycle Length — MD',   fmt: fmtDays, total: mp.pipelineHealth.avgDealCycleMd.total, byDepot: mp.pipelineHealth.avgDealCycleMd.byDepot },
+    { label: 'Avg. Deal Cycle Length — SD',   fmt: fmtDays, total: mp.pipelineHealth.avgDealCycleSd.total, byDepot: mp.pipelineHealth.avgDealCycleSd.byDepot },
+  ];
 
   const stages = funnelQ.data?.stages || [];
   const totalEnquiries = funnelQ.data?.totalEnquiries || stages[0]?.count || 1;
@@ -24,8 +66,62 @@ export default function FunnelView() {
     ? (closedLost / (totalEnquiries + closedLost)) * 100
     : null;
 
+  // Multi-Day Enquiry Conversion KPIs (anchored by enquiry create date)
+  const mdConvTotal      = funnelQ.data?.totalEnquiries ?? null;
+  const mdConvClosedLost = funnelQ.data?.closedLost      ?? null;
+  // stage[5] = Deposit Received / Won (cumulative = all won + ops pipeline deals)
+  const mdConvClosedWon  = stages?.[5]?.count ?? null;
+  const mdConvInProgress = (mdConvTotal !== null && mdConvClosedWon !== null && mdConvClosedLost !== null)
+    ? mdConvTotal - mdConvClosedWon - mdConvClosedLost
+    : null;
+  const mdConvCvr = (mdConvClosedWon !== null && mdConvTotal > 0) ? (mdConvClosedWon / mdConvTotal) * 100 : null;
+
   return (
     <div className="p-6 space-y-6">
+
+      {/* ── Multi-Day Enquiry Conversion ────────────────────────────────── */}
+      <div>
+        <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-3">
+          Multi-Day Enquiry Conversion
+          <span className="normal-case font-normal text-gray-600 ml-1">(anchored by enquiry create date)</span>
+        </h2>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <KpiCard
+            label="CVR"
+            value={mdConvCvr}
+            format="percent"
+            loading={funnelQ.isLoading}
+            subtitle="Deposit Received ÷ total enquiries created"
+          />
+          <KpiCard
+            label="In Progress"
+            value={mdConvInProgress}
+            format="number"
+            loading={funnelQ.isLoading}
+            subtitle="Active enquiries not yet won or lost"
+          />
+          <KpiCard
+            label="Closed Won"
+            value={mdConvClosedWon}
+            format="number"
+            loading={funnelQ.isLoading}
+            subtitle="Reached Deposit Received / Won or beyond"
+          />
+          <KpiCard
+            label="Closed Lost"
+            value={mdConvClosedLost}
+            format="number"
+            loading={funnelQ.isLoading}
+            subtitle="Marked Closed Lost in HubSpot"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 mt-4">
+          <MetricTable title="Lead Quality" rows={leadQualityRows} loading={mpLoading} />
+          <MetricTable title="Pipeline Health" rows={pipelineHealthRows} loading={mpLoading} />
+        </div>
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-base font-semibold text-gray-800">Multi Day Sales Pipeline Funnel</h2>
