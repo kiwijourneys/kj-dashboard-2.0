@@ -124,11 +124,20 @@ async function _refreshToken() {
   return _token.accessToken;
 }
 
+// Dedupe concurrent refresh attempts — the dashboard fires several Xero
+// endpoints in parallel on load, and Xero invalidates a refresh token the
+// instant it's used. Without this, simultaneous callers each POST the same
+// (soon-stale) token independently: only one succeeds, the rest fail with
+// invalid_grant, and competing persist-to-Render calls can race each other.
+let _refreshPromise = null;
+
 async function _getAccessToken() {
   if (_token.accessToken && Date.now() < _token.expiresAt - 90_000) {
     return _token.accessToken;
   }
-  return _refreshToken();
+  if (_refreshPromise) return _refreshPromise;
+  _refreshPromise = _refreshToken().finally(() => { _refreshPromise = null; });
+  return _refreshPromise;
 }
 
 function _headers(accessToken) {
