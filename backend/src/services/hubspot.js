@@ -109,7 +109,28 @@ class ConcurrencyLimiter {
   }
 }
 
-const _hs = new ConcurrencyLimiter(3, 250);
+const _hs = new ConcurrencyLimiter(2, 350);
+
+/**
+ * POST to HubSpot's deal search endpoint with 429 retry + backoff.
+ * The Marketing dashboard fires many search calls per load; even with the
+ * concurrency limiter, HubSpot's "secondly" cap can still be hit occasionally.
+ */
+async function _postWithRetry(body, retries = 3) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await axios.post(`${BASE}/crm/v3/objects/deals/search`, body, { headers: HEADERS() });
+    } catch (err) {
+      if (err.response?.status === 429 && attempt < retries) {
+        const delay = (2 ** attempt) * 500;
+        console.warn(`[hubspot] 429 rate limit — retrying in ${delay}ms (attempt ${attempt + 1}/${retries})`);
+        await new Promise(r => setTimeout(r, delay));
+      } else {
+        throw err;
+      }
+    }
+  }
+}
 
 // ── Core paged fetch ──────────────────────────────────────────────────────────
 
@@ -134,13 +155,7 @@ async function searchDeals(filters, properties = [], limit = 100) {
       ...(after ? { after } : {}),
     };
 
-    const resp = await _hs.run(() =>
-      axios.post(
-        `${BASE}/crm/v3/objects/deals/search`,
-        body,
-        { headers: HEADERS() }
-      )
-    );
+    const resp = await _hs.run(() => _postWithRetry(body));
 
     results.push(...resp.data.results);
     after = resp.data.paging?.next?.after;
@@ -381,6 +396,59 @@ async function getSingleDayClosedWon({ startDate, endDate, region } = {}) {
 // Booking Confirmed and Booking Admin Complete live in the Operations pipeline.
 // We query both and stitch them into a single funnel.
 
+// Sequential funnel stages — only the positive progression path.
+// No Contact is a dead-end (not a through-stage) so it's excluded here.
+const MD_STAGE_ORDER = [
+  { id: config.hubspot.multiDayStages.initialEnquiry,        label: 'Initial Enquiry',         pipeline: 'sales' },
+  { id: config.hubspot.multiDayStages.allocated,             label: 'Allocated',               pipeline: 'sales' },
+  { id: config.hubspot.multiDayStages.tourDiscoveryHad,      label: 'Tour Discovery Had',      pipeline: 'sales' },
+  { id: config.hubspot.multiDayStages.draftItinerarySent,    label: 'Draft Itinerary Sent',    pipeline: 'sales' },
+  { id: config.hubspot.multiDayStages.finalItinerarySent,    label: 'Final Itinerary Sent',    pipeline: 'sales' },
+  { id: config.hubspot.multiDayStages.depositReceived,       label: 'Deposit Received / Won',  pipeline: 'sales' },
+  { id: config.hubspot.multiDayStages.bookingConfirmed,      label: 'Booking Confirmed',       pipeline: 'ops'   },
+  { id: config.hubspot.multiDayStages.bookingFormSent,       label: 'Booking Form Sent',       pipeline: 'ops'   },
+  { id: config.hubspot.multiDayStages.completedFormReceived, label: 'Completed Form Received', pipeline: 'ops'   },
+  { id: config.hubspot.multiDayStages.bookingAdminComplete,  label: 'Booking Admin Complete',  pipeline: 'ops',  closedWon: true },
+];
+
+const MD_BOOKING_ADMIN_IDX = MD_STAGE_ORDER.length - 1;
+const MD_TOUR_DISCOVERY_IDX = 2; // "Opportunity" threshold for lead-to-opportunity rate
+
+const MD_STAGE_INDEX_MAP = {};
+MD_STAGE_ORDER.forEach((s, i) => { MD_STAGE_INDEX_MAP[s.id] = i; });
+
+// Dead-end stages with a known depth credit:
+//   closedLost (sales)  → credit only Initial Enquiry (we don't know where they dropped)
+//   noContact           → credit Initial Enquiry + Allocated (NC implies allocation happened)
+//   ops closedLost / cancelled → credit all sales stages + Booking Confirmed (they were in ops)
+const MD_SALES_CL   = config.hubspot.multiDayStages.closedLost;  // '1547076042'
+const MD_NO_CONTACT = config.hubspot.multiDayStages.noContact;   // '1547076038'
+const MD_OPS_CL      = '1547076049';  // ops pipeline Closed Lost
+const MD_CANCELLED   = '2518923720';  // Cancelled Bookings with Credit Held
+
+// Post-terminal ops stages: tour happened, past Booking Admin Complete — count at max depth
+const MD_POST_TERMINAL_OPS = new Set([
+  '1683048924', // Invoice to be sent - 7 days
+  '1547076046', // 60 Day Reminder
+  '1547076047', // 30 Day Reminder
+  '1547080152', // 2 Week Reminder
+  '1547076048', // Complete
+  '1593890237', // Post Tour Email Sent
+]);
+
+/**
+ * Resolve how deep into the MD funnel a given dealstage represents.
+ * Shared by getMultiDayFunnel and getOpportunityRates so both use identical logic.
+ */
+function mdStageDepth(stageId) {
+  if (MD_POST_TERMINAL_OPS.has(stageId)) return MD_BOOKING_ADMIN_IDX;
+  if (stageId === MD_NO_CONTACT) return 1;
+  if (stageId === MD_SALES_CL) return 0;
+  if (stageId === MD_OPS_CL || stageId === MD_CANCELLED) return 6;
+  const depth = MD_STAGE_INDEX_MAP[stageId];
+  return depth === undefined ? 0 : depth;
+}
+
 async function getMultiDayFunnel({ startDate, endDate, region } = {}) {
   const cacheKey = buildKey(NAMESPACES.HUBSPOT, 'mdFunnel', startDate || 'all', endDate || 'all', region || 'all');
   return getOrFetch(cacheKey, async () => {
@@ -411,71 +479,15 @@ async function getMultiDayFunnel({ startDate, endDate, region } = {}) {
     const salesFiltered = filterRegion(salesDeals);
     const opsFiltered   = filterRegion(opsDeals);
 
-    // Sequential funnel stages — only the positive progression path.
-    // No Contact is a dead-end (not a through-stage) so it's excluded here.
-    const stageOrder = [
-      { id: config.hubspot.multiDayStages.initialEnquiry,        label: 'Initial Enquiry',         pipeline: 'sales' },
-      { id: config.hubspot.multiDayStages.allocated,             label: 'Allocated',               pipeline: 'sales' },
-      { id: config.hubspot.multiDayStages.tourDiscoveryHad,      label: 'Tour Discovery Had',      pipeline: 'sales' },
-      { id: config.hubspot.multiDayStages.draftItinerarySent,    label: 'Draft Itinerary Sent',    pipeline: 'sales' },
-      { id: config.hubspot.multiDayStages.finalItinerarySent,    label: 'Final Itinerary Sent',    pipeline: 'sales' },
-      { id: config.hubspot.multiDayStages.depositReceived,       label: 'Deposit Received / Won',  pipeline: 'sales' },
-      { id: config.hubspot.multiDayStages.bookingConfirmed,      label: 'Booking Confirmed',       pipeline: 'ops'   },
-      { id: config.hubspot.multiDayStages.bookingFormSent,       label: 'Booking Form Sent',       pipeline: 'ops'   },
-      { id: config.hubspot.multiDayStages.completedFormReceived, label: 'Completed Form Received', pipeline: 'ops'   },
-      { id: config.hubspot.multiDayStages.bookingAdminComplete,  label: 'Booking Admin Complete',  pipeline: 'ops',  closedWon: true },
-    ];
-
-    const BOOKING_ADMIN_IDX = stageOrder.length - 1;
-
-    // stageId → funnel depth index for progressive stages
-    const stageIndexMap = {};
-    stageOrder.forEach((s, i) => { stageIndexMap[s.id] = i; });
-
-    // Dead-end stages with a known depth credit:
-    //   closedLost (sales)  → credit only Initial Enquiry (we don't know where they dropped)
-    //   noContact           → credit Initial Enquiry + Allocated (NC implies allocation happened)
-    //   ops closedLost / cancelled → credit all sales stages + Booking Confirmed (they were in ops)
-    const SALES_CL   = config.hubspot.multiDayStages.closedLost;  // '1547076042'
-    const NO_CONTACT = config.hubspot.multiDayStages.noContact;   // '1547076038'
-    const OPS_CL     = '1547076049';  // ops pipeline Closed Lost
-    const CANCELLED  = '2518923720';  // Cancelled Bookings with Credit Held
-
-    // Post-terminal ops stages: tour happened, past Booking Admin Complete — count at max depth
-    const POST_TERMINAL_OPS = new Set([
-      '1683048924', // Invoice to be sent - 7 days
-      '1547076046', // 60 Day Reminder
-      '1547076047', // 30 Day Reminder
-      '1547080152', // 2 Week Reminder
-      '1547076048', // Complete
-      '1593890237', // Post Tour Email Sent
-    ]);
-
     // Cumulative counts: cumulativeCounts[N] = deals that have reached stage N or beyond.
-    const cumulativeCounts = new Array(stageOrder.length).fill(0);
+    const cumulativeCounts = new Array(MD_STAGE_ORDER.length).fill(0);
     let closedLostCount = 0;
     let noContactCount  = 0;
 
     const addDeal = (stageId) => {
-      // Track dead-end exits
-      if (stageId === SALES_CL) { closedLostCount++; }
-      if (stageId === NO_CONTACT) { noContactCount++; }
-
-      // Determine how deep into the funnel this deal has progressed
-      let depth;
-      if (POST_TERMINAL_OPS.has(stageId)) {
-        depth = BOOKING_ADMIN_IDX; // completed all funnel stages
-      } else if (stageId === NO_CONTACT) {
-        depth = 1; // reached Allocated (index 1) but no further
-      } else if (stageId === SALES_CL) {
-        depth = 0; // only credit Initial Enquiry
-      } else if (stageId === OPS_CL || stageId === CANCELLED) {
-        depth = 6; // reached Booking Confirmed (index 6) in ops before being lost
-      } else {
-        depth = stageIndexMap[stageId];
-        if (depth === undefined) depth = 0; // unknown stage — credit Initial Enquiry only
-      }
-
+      if (stageId === MD_SALES_CL) closedLostCount++;
+      if (stageId === MD_NO_CONTACT) noContactCount++;
+      const depth = mdStageDepth(stageId);
       for (let i = 0; i <= depth; i++) cumulativeCounts[i]++;
     };
 
@@ -485,7 +497,7 @@ async function getMultiDayFunnel({ startDate, endDate, region } = {}) {
     const topCount = cumulativeCounts[0] || 1;
 
     return {
-      stages: stageOrder.map((s, i) => ({
+      stages: MD_STAGE_ORDER.map((s, i) => ({
         id:        s.id,
         label:     s.label,
         count:     cumulativeCounts[i],
@@ -793,21 +805,52 @@ async function getOpportunityRates({ pipeline, startDate, endDate } = {}) {
   const cacheKey = buildKey(NAMESPACES.HUBSPOT, 'oppRates', pipeline, startDate || 'all', endDate || 'all');
   return getOrFetch(cacheKey, async () => {
     if (pipeline === 'md') {
-      const regions = [null, ...ALL_DEPOTS];
-      const funnels = await Promise.all(regions.map(r => getMultiDayFunnel({ startDate, endDate, region: r })));
-      const fromFunnel = (f) => {
-        const totalEnquiries = f.stages[0].count;
-        const opportunities  = f.stages[2].count; // Tour Discovery Had
-        const closedWon      = f.stages[f.stages.length - 1].count; // Booking Admin Complete
-        return {
-          totalEnquiries, opportunities, closedWon,
-          leadToOpportunityRate:  totalEnquiries > 0 ? (opportunities / totalEnquiries) * 100 : null,
-          opportunityToCloseRate: opportunities  > 0 ? (closedWon / opportunities) * 100      : null,
-        };
+      // Single fetch (2 calls: sales + ops), bucketed by depot in one pass —
+      // avoids calling getMultiDayFunnel 5x (which would be 10 HubSpot searches).
+      const dateFilters = [
+        ...(startDate ? [{ propertyName: 'createdate', operator: 'GTE', value: toMs(startDate).toString() }] : []),
+        ...(endDate   ? [{ propertyName: 'createdate', operator: 'LTE', value: (toMs(endDate) + 86_399_999).toString() }] : []),
+      ];
+      const [salesDeals, opsDeals] = await Promise.all([
+        searchDeals([{ propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.multiDaySalesPipelineId }, ...dateFilters]),
+        searchDeals([{ propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.multiDayOpsPipelineId }, ...dateFilters]),
+      ]);
+      recordSync('hubspot');
+
+      const emptyBucket = () => ({ totalEnquiries: 0, opportunities: 0, closedWon: 0 });
+      const totals = emptyBucket();
+      const byDepot = {};
+      for (const d of ALL_DEPOTS) byDepot[d] = emptyBucket();
+
+      const addDeal = (deal) => {
+        const p = deal.properties;
+        const depth = mdStageDepth(p.dealstage);
+        const isOpp = depth >= MD_TOUR_DISCOVERY_IDX;
+        const isWon = depth === MD_BOOKING_ADMIN_IDX && p.dealstage !== MD_OPS_CL && p.dealstage !== MD_CANCELLED;
+        const regions = normaliseRegions(p.location, p.hubspot_owner_id).filter(r => ALL_DEPOTS.includes(r));
+
+        totals.totalEnquiries++;
+        if (isOpp) totals.opportunities++;
+        if (isWon) totals.closedWon++;
+        for (const r of regions) {
+          byDepot[r].totalEnquiries++;
+          if (isOpp) byDepot[r].opportunities++;
+          if (isWon) byDepot[r].closedWon++;
+        }
       };
+
+      for (const deal of salesDeals) addDeal(deal);
+      for (const deal of opsDeals)   addDeal(deal);
+
+      const finalize = (b) => ({
+        ...b,
+        leadToOpportunityRate:  b.totalEnquiries > 0 ? (b.opportunities / b.totalEnquiries) * 100 : null,
+        opportunityToCloseRate: b.opportunities  > 0 ? (b.closedWon / b.opportunities) * 100      : null,
+      });
+
       return {
-        total: fromFunnel(funnels[0]),
-        byDepot: Object.fromEntries(ALL_DEPOTS.map((d, i) => [d, fromFunnel(funnels[i + 1])])),
+        total: finalize(totals),
+        byDepot: Object.fromEntries(ALL_DEPOTS.map(d => [d, finalize(byDepot[d])])),
       };
     }
 
