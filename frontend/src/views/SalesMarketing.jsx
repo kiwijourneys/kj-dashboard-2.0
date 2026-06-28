@@ -360,7 +360,6 @@ export default function SalesMarketing() {
 
   const leadQualityRows = mpLoading ? [] : [
     { label: 'Lead-to-Opportunity Rate (MD)',  fmt: fmtPercent, total: mp.leadQuality.leadToOpportunityRateMd.total,  byDepot: mp.leadQuality.leadToOpportunityRateMd.byDepot },
-    { label: 'Lead-to-Opportunity Rate (SD)',  fmt: fmtPercent, total: mp.leadQuality.leadToOpportunityRateSd.total,  byDepot: mp.leadQuality.leadToOpportunityRateSd.byDepot },
     { label: 'Opportunity-to-Close Rate (MD)', fmt: fmtPercent, total: mp.leadQuality.opportunityToCloseRateMd.total, byDepot: mp.leadQuality.opportunityToCloseRateMd.byDepot },
   ];
 

@@ -49,7 +49,7 @@ async function getMarketingPerformance({ startDate, endDate } = {}) {
     mdLeads, sdLeads, mdClosed, sdClosed,
     attributedMd, attributedSd,
     pipelineHealthMd, pipelineHealthSd,
-    oppRatesMd, oppRatesSd,
+    oppRatesMd,
     metaPerf, gadsPerf,
     metaTourType, gadsTourType,
   ] = await Promise.all([
@@ -61,8 +61,7 @@ async function getMarketingPerformance({ startDate, endDate } = {}) {
     hubspot.getAttributedLeadCounts({ pipeline: 'sd', startDate, endDate }),
     hubspot.getPipelineHealth({ pipeline: 'md', startDate, endDate }),
     hubspot.getPipelineHealth({ pipeline: 'sd', startDate, endDate }),
-    hubspot.getOpportunityRates({ pipeline: 'md', startDate, endDate }),
-    hubspot.getOpportunityRates({ pipeline: 'sd', startDate, endDate }),
+    hubspot.getOpportunityRates({ startDate, endDate }),
     meta.getDepotPerformance({ startDate, endDate }),
     googleAds.getDepotPerformance({ startDate, endDate }),
     meta.getTourTypeDepotPerformance({ startDate, endDate }),
@@ -152,10 +151,9 @@ async function getMarketingPerformance({ startDate, endDate } = {}) {
     },
   };
 
-  // ── Lead Quality ─────────────────────────────────────────────────────────────
+  // ── Lead Quality (MD only — SD is mostly instant on-site conversions, not a sales funnel) ──
   const leadQuality = {
     leadToOpportunityRateMd:  { total: oppRatesMd.total.leadToOpportunityRate,  byDepot: Object.fromEntries(ALL_DEPOTS.map(d => [d, oppRatesMd.byDepot[d].leadToOpportunityRate])) },
-    leadToOpportunityRateSd:  { total: oppRatesSd.total.leadToOpportunityRate,  byDepot: Object.fromEntries(ALL_DEPOTS.map(d => [d, oppRatesSd.byDepot[d].leadToOpportunityRate])) },
     opportunityToCloseRateMd: { total: oppRatesMd.total.opportunityToCloseRate, byDepot: Object.fromEntries(ALL_DEPOTS.map(d => [d, oppRatesMd.byDepot[d].opportunityToCloseRate])) },
   };
 

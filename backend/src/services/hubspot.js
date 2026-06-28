@@ -857,85 +857,38 @@ async function getPipelineHealth({ pipeline, startDate, endDate } = {}) {
 }
 
 /**
- * Lead-to-Opportunity and Opportunity-to-Close rates.
+ * Lead-to-Opportunity and Opportunity-to-Close rates — MD only. Single Day
+ * is mostly instant on-site (Rezdy) conversions rather than a sales-assisted
+ * funnel, so these rates aren't meaningful for SD and aren't computed for it.
  * MD reuses the existing funnel depth logic (Opportunity = Tour Discovery Had).
- * SD has no stage-history tracking, so it approximates using current stage —
- * Opportunity = qualifiedtobuy or beyond.
  */
-async function getOpportunityRates({ pipeline, startDate, endDate } = {}) {
-  const cacheKey = buildKey(NAMESPACES.HUBSPOT, 'oppRates', pipeline, startDate || 'all', endDate || 'all');
+async function getOpportunityRates({ startDate, endDate } = {}) {
+  const cacheKey = buildKey(NAMESPACES.HUBSPOT, 'oppRates', 'md', startDate || 'all', endDate || 'all');
   return getOrFetch(cacheKey, async () => {
-    if (pipeline === 'md') {
-      // Single fetch (2 calls: sales + ops), bucketed by depot in one pass —
-      // avoids calling getMultiDayFunnel 5x (which would be 10 HubSpot searches).
-      const dateFilters = [
-        ...(startDate ? [{ propertyName: 'createdate', operator: 'GTE', value: toMs(startDate).toString() }] : []),
-        ...(endDate   ? [{ propertyName: 'createdate', operator: 'LTE', value: (toMs(endDate) + 86_399_999).toString() }] : []),
-      ];
-      const [salesDeals, opsDeals] = await Promise.all([
-        searchDeals([{ propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.multiDaySalesPipelineId }, ...dateFilters]),
-        searchDeals([{ propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.multiDayOpsPipelineId }, ...dateFilters]),
-      ]);
-      recordSync('hubspot');
-
-      const emptyBucket = () => ({ totalEnquiries: 0, opportunities: 0, closedWon: 0 });
-      const totals = emptyBucket();
-      const byDepot = {};
-      for (const d of ALL_DEPOTS) byDepot[d] = emptyBucket();
-
-      const addDeal = (deal) => {
-        const p = deal.properties;
-        const depth = mdStageDepth(p.dealstage);
-        const isOpp = depth >= MD_TOUR_DISCOVERY_IDX;
-        const isWon = depth === MD_BOOKING_ADMIN_IDX && p.dealstage !== MD_OPS_CL && p.dealstage !== MD_CANCELLED;
-        const regions = normaliseRegions(p.location, p.hubspot_owner_id).filter(r => ALL_DEPOTS.includes(r));
-
-        totals.totalEnquiries++;
-        if (isOpp) totals.opportunities++;
-        if (isWon) totals.closedWon++;
-        for (const r of regions) {
-          byDepot[r].totalEnquiries++;
-          if (isOpp) byDepot[r].opportunities++;
-          if (isWon) byDepot[r].closedWon++;
-        }
-      };
-
-      for (const deal of salesDeals) addDeal(deal);
-      for (const deal of opsDeals)   addDeal(deal);
-
-      const finalize = (b) => ({
-        ...b,
-        leadToOpportunityRate:  b.totalEnquiries > 0 ? (b.opportunities / b.totalEnquiries) * 100 : null,
-        opportunityToCloseRate: b.opportunities  > 0 ? (b.closedWon / b.opportunities) * 100      : null,
-      });
-
-      return {
-        total: finalize(totals),
-        byDepot: Object.fromEntries(ALL_DEPOTS.map(d => [d, finalize(byDepot[d])])),
-      };
-    }
-
+    // Single fetch (2 calls: sales + ops), bucketed by depot in one pass —
+    // avoids calling getMultiDayFunnel 5x (which would be 10 HubSpot searches).
     const dateFilters = [
       ...(startDate ? [{ propertyName: 'createdate', operator: 'GTE', value: toMs(startDate).toString() }] : []),
       ...(endDate   ? [{ propertyName: 'createdate', operator: 'LTE', value: (toMs(endDate) + 86_399_999).toString() }] : []),
     ];
-    const deals = await searchDeals([{ propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.singleDayPipelineId }, ...dateFilters]);
+    const [salesDeals, opsDeals] = await Promise.all([
+      searchDeals([{ propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.multiDaySalesPipelineId }, ...dateFilters]),
+      searchDeals([{ propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.multiDayOpsPipelineId }, ...dateFilters]),
+    ]);
     recordSync('hubspot');
-
-    const { allocated, inProgress, bookingAdminComplete, complete } = config.hubspot.singleDayStages;
-    const OPPORTUNITY_STAGES = new Set([allocated, inProgress, bookingAdminComplete, complete]);
-    const WON_STAGES = new Set([bookingAdminComplete, complete]);
 
     const emptyBucket = () => ({ totalEnquiries: 0, opportunities: 0, closedWon: 0 });
     const totals = emptyBucket();
     const byDepot = {};
     for (const d of ALL_DEPOTS) byDepot[d] = emptyBucket();
 
-    for (const deal of deals) {
+    const addDeal = (deal) => {
       const p = deal.properties;
+      const depth = mdStageDepth(p.dealstage);
+      const isOpp = depth >= MD_TOUR_DISCOVERY_IDX;
+      const isWon = depth === MD_BOOKING_ADMIN_IDX && p.dealstage !== MD_OPS_CL && p.dealstage !== MD_CANCELLED;
       const regions = normaliseRegions(p.location, p.hubspot_owner_id).filter(r => ALL_DEPOTS.includes(r));
-      const isOpp = OPPORTUNITY_STAGES.has(p.dealstage);
-      const isWon = WON_STAGES.has(p.dealstage);
+
       totals.totalEnquiries++;
       if (isOpp) totals.opportunities++;
       if (isWon) totals.closedWon++;
@@ -944,7 +897,10 @@ async function getOpportunityRates({ pipeline, startDate, endDate } = {}) {
         if (isOpp) byDepot[r].opportunities++;
         if (isWon) byDepot[r].closedWon++;
       }
-    }
+    };
+
+    for (const deal of salesDeals) addDeal(deal);
+    for (const deal of opsDeals)   addDeal(deal);
 
     const finalize = (b) => ({
       ...b,
