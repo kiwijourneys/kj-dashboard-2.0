@@ -132,6 +132,54 @@ async function _postWithRetry(body, retries = 3) {
   }
 }
 
+/**
+ * Fetch a single deal's dealstage change history (most-recent-first) with
+ * 429 retry. Used to find the exact timestamp a deal entered a given stage,
+ * rather than approximating with closedate/hs_lastmodifieddate.
+ */
+async function _getDealStageHistory(dealId, retries = 3) {
+  const url = `${BASE}/crm/v3/objects/deals/${dealId}`;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const resp = await axios.get(url, { headers: HEADERS(), params: { propertiesWithHistory: 'dealstage' } });
+      return resp.data.propertiesWithHistory?.dealstage || [];
+    } catch (err) {
+      if (err.response?.status === 429 && attempt < retries) {
+        await new Promise(r => setTimeout(r, (2 ** attempt) * 500));
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
+/**
+ * From a dealstage history array, find the earliest timestamp the deal
+ * entered the given stage (handles the rare case of a deal re-entering a
+ * stage after later edits, by taking the first transition into it).
+ */
+function _findStageEntryTimestamp(history, stageId) {
+  const matches = history.filter(h => h.value === stageId);
+  if (matches.length === 0) return null;
+  return matches.reduce((min, h) => (!min || h.timestamp < min ? h.timestamp : min), null);
+}
+
+/**
+ * Resolve the actual "entered this stage" timestamp for a won deal, fetched
+ * via property history and routed through the shared concurrency limiter.
+ * Falls back to closedate/hs_lastmodifieddate if history is unavailable.
+ */
+async function _resolveWonTimestamp(dealId, wonStageId, fallbackCloseTs) {
+  try {
+    const history = await _hs.run(() => _getDealStageHistory(dealId));
+    const entered = _findStageEntryTimestamp(history, wonStageId);
+    if (entered) return new Date(entered).getTime();
+  } catch (err) {
+    console.warn(`[hubspot] Could not fetch stage history for deal ${dealId}:`, err.message);
+  }
+  return fallbackCloseTs;
+}
+
 // ── Core paged fetch ──────────────────────────────────────────────────────────
 
 async function searchDeals(filters, properties = [], limit = 100) {
@@ -762,6 +810,8 @@ async function getPipelineHealth({ pipeline, startDate, endDate } = {}) {
     const byDepot = {};
     for (const d of ALL_DEPOTS) byDepot[d] = emptyBucket();
 
+    const wonDeals = [];
+
     for (const deal of deals) {
       const p = deal.properties;
       const stage = p.dealstage;
@@ -772,15 +822,26 @@ async function getPipelineHealth({ pipeline, startDate, endDate } = {}) {
         totals.openCount++; totals.openValue += amount;
         for (const r of regions) { byDepot[r].openCount++; byDepot[r].openValue += amount; }
       } else if (isWon(stage)) {
-        const closeTs  = p.closedate ? new Date(p.closedate).getTime() : (p.hs_lastmodifieddate ? new Date(p.hs_lastmodifieddate).getTime() : null);
-        const createTs = p.createdate ? new Date(p.createdate).getTime() : null;
-        if (closeTs && createTs && closeTs > createTs) {
-          const days = (closeTs - createTs) / 86_400_000;
-          totals.closedCount++; totals.totalCycleDays += days;
-          for (const r of regions) { byDepot[r].closedCount++; byDepot[r].totalCycleDays += days; }
-        }
+        wonDeals.push({ id: deal.id, stage, regions, createdate: p.createdate, closedate: p.closedate, hs_lastmodifieddate: p.hs_lastmodifieddate });
       }
     }
+
+    // Resolve the exact "entered won stage" timestamp via property history,
+    // falling back to closedate/hs_lastmodifieddate if history is unavailable.
+    // Avg Deal Cycle Length = createdate -> the moment dealstage became the
+    // won stage (Booking Admin Complete for MD; complete/bookingAdminComplete for SD).
+    await Promise.all(wonDeals.map(async (w) => {
+      const fallback = w.closedate ? new Date(w.closedate).getTime() : (w.hs_lastmodifieddate ? new Date(w.hs_lastmodifieddate).getTime() : null);
+      const createTs = w.createdate ? new Date(w.createdate).getTime() : null;
+      const wonStageId = pipeline === 'md' ? MD_WON_STAGE : w.stage; // SD has two won stages; use whichever this deal is in
+      const closeTs = await _resolveWonTimestamp(w.id, wonStageId, fallback);
+
+      if (closeTs && createTs && closeTs > createTs) {
+        const days = (closeTs - createTs) / 86_400_000;
+        totals.closedCount++; totals.totalCycleDays += days;
+        for (const r of w.regions) { byDepot[r].closedCount++; byDepot[r].totalCycleDays += days; }
+      }
+    }));
 
     const finalize = (b) => ({
       openCount: b.openCount,

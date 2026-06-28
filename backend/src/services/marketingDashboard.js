@@ -147,14 +147,6 @@ async function getMarketingPerformance({ startDate, endDate } = {}) {
     opportunityToCloseRateMd: { total: oppRatesMd.total.opportunityToCloseRate, byDepot: Object.fromEntries(ALL_DEPOTS.map(d => [d, oppRatesMd.byDepot[d].opportunityToCloseRate])) },
   };
 
-  // ── Channel Performance ─────────────────────────────────────────────────────
-  const channelPerformance = {
-    ctrMeta:  { total: metaPerf.total?.ctr ?? null, byDepot: Object.fromEntries(ALL_DEPOTS.map(d => [d, metaPerf.byDepot[d]?.ctr ?? null])) },
-    ctrGads:  { total: gadsPerf.total?.ctr ?? null, byDepot: Object.fromEntries(ALL_DEPOTS.map(d => [d, gadsPerf.byDepot[d]?.ctr ?? null])) },
-    cpcMeta:  { total: metaPerf.total?.cpcNzd ?? null, byDepot: Object.fromEntries(ALL_DEPOTS.map(d => [d, metaPerf.byDepot[d]?.cpcNzd ?? null])) },
-    cpcGads:  { total: gadsPerf.total?.cpcNzd ?? null, byDepot: Object.fromEntries(ALL_DEPOTS.map(d => [d, gadsPerf.byDepot[d]?.cpcNzd ?? null])) },
-  };
-
   // ── Pipeline Health ──────────────────────────────────────────────────────────
   const pipelineHealth = {
     openOpportunitiesMd: { total: pipelineHealthMd.total.openCount, byDepot: Object.fromEntries(ALL_DEPOTS.map(d => [d, pipelineHealthMd.byDepot[d].openCount])) },
@@ -172,7 +164,6 @@ async function getMarketingPerformance({ startDate, endDate } = {}) {
     attributedPerformance,
     costRoi,
     leadQuality,
-    channelPerformance,
     pipelineHealth,
   };
 }
