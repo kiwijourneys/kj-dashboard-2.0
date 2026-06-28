@@ -1,8 +1,9 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useFilters } from '../context/FilterContext';
-import { fetchAdAttribution } from '../api';
+import { fetchAdAttribution, fetchMarketingPerformance } from '../api';
 import ErrorWidget from '../components/ErrorWidget';
+import MetricTable from '../components/MetricTable';
 import {
   ComposedChart, Bar, Line, ScatterChart, Scatter,
   XAxis, YAxis, ZAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid,
@@ -23,6 +24,10 @@ function fmtPct(v) {
 function fmtR(v) {
   if (v === null || v === undefined) return '—';
   return v.toFixed(2);
+}
+function fmtCurrency(v, dp = 0) {
+  if (v === null || v === undefined) return '—';
+  return `$${Number(v).toLocaleString('en-NZ', { minimumFractionDigits: dp, maximumFractionDigits: dp })}`;
 }
 
 function StatCard({ label, value, sub }) {
@@ -75,6 +80,12 @@ export default function MarketingAttribution() {
     enabled: !!(startDate && endDate),
     retry: 1,
   });
+  const marketingPerfQ = useQuery({
+    queryKey: ['marketingPerformance', startDate, endDate],
+    queryFn: () => fetchMarketingPerformance({ startDate, endDate }),
+    enabled: !!(startDate && endDate),
+    retry: 1,
+  });
 
   if (attrQ.isError) {
     return <div className="p-6"><ErrorWidget message={attrQ.error?.message} onRetry={() => attrQ.refetch()} /></div>;
@@ -82,6 +93,17 @@ export default function MarketingAttribution() {
 
   const d = attrQ.data;
   const loading = attrQ.isLoading || !d;
+
+  const mp = marketingPerfQ.data;
+  const mpLoading = marketingPerfQ.isLoading || !mp;
+  const attributedRows = mpLoading ? [] : [
+    { label: '$/Attributed Meta MD Enquiries',  fmt: v => fmtCurrency(v, 0), total: mp.attributedPerformance.metaMdEnquiries.total, byDepot: mp.attributedPerformance.metaMdEnquiries.byDepot },
+    { label: '$/Attributed GAds MD Enquiries',  fmt: v => fmtCurrency(v, 0), total: mp.attributedPerformance.gadsMdEnquiries.total, byDepot: mp.attributedPerformance.gadsMdEnquiries.byDepot },
+    { label: '$/Attributed Meta SD Enquiries',  fmt: v => fmtCurrency(v, 0), total: mp.attributedPerformance.metaSdEnquiries.total, byDepot: mp.attributedPerformance.metaSdEnquiries.byDepot },
+    { label: '$/Attributed GAds SD Enquiries',  fmt: v => fmtCurrency(v, 0), total: mp.attributedPerformance.gadsSdEnquiries.total, byDepot: mp.attributedPerformance.gadsSdEnquiries.byDepot },
+    { label: '$/Attributed Meta Leads/Results', fmt: v => fmtCurrency(v, 2), total: mp.attributedPerformance.metaLeadsResults.total, byDepot: mp.attributedPerformance.metaLeadsResults.byDepot },
+    { label: '$/Attributed GAds Conversions',   fmt: v => fmtCurrency(v, 2), total: mp.attributedPerformance.gadsConversions.total, byDepot: mp.attributedPerformance.gadsConversions.byDepot },
+  ];
 
   const chartData = loading ? [] : d.weeklyChart.map(w => ({ ...w, weekLabel: fmtWeek(w.week) }));
   const metaOwnCorr   = loading ? null : d.correlations.find(c => c.key === 'metaOwn');
@@ -111,6 +133,13 @@ export default function MarketingAttribution() {
             <StatCard label="Google Spend (NZD)" value={fmtNzd(d.statCards.googleSpendNzd)} />
           </div>
         )}
+      </div>
+
+      <div>
+        <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-3">
+          Attributed Performance <span className="normal-case font-normal text-gray-400">(deal-level, via HubSpot's original-source field — Meta = Paid Social, Google = Paid Search)</span>
+        </h2>
+        <MetricTable rows={attributedRows} loading={mpLoading} />
       </div>
 
       <div className="card">

@@ -6,11 +6,12 @@ import {
   fetchMdLeads, fetchSdLeads, fetchMdClosed, fetchSdClosed,
   fetchMdActual, fetchSdActual, fetchGa4RezdyRev, fetchGa4BikeRental,
   fetchGoogleDepotDaily, fetchXeroPnl, fetchXeroMonthly, fetchXeroIncomeByPeriod, fetchMdFunnel, fetchMdBookedRevenue,
-  fetchGa4Daily,
+  fetchGa4Daily, fetchMarketingPerformance,
 } from '../api';
 import KpiCard from '../components/KpiCard';
 import ErrorWidget from '../components/ErrorWidget';
 import SyncBadge from '../components/SyncBadge';
+import MetricTable from '../components/MetricTable';
 import {
   LineChart, Line, BarChart, Bar, ComposedChart,
   XAxis, YAxis, Tooltip, Legend,
@@ -50,6 +51,27 @@ function fmtNzd(v) {
   return `$${Number(v).toLocaleString('en-NZ', { maximumFractionDigits: 0 })}`;
 }
 
+function fmtCurrency(v, dp = 0) {
+  if (v === null || v === undefined) return '—';
+  return `$${Number(v).toLocaleString('en-NZ', { minimumFractionDigits: dp, maximumFractionDigits: dp })}`;
+}
+function fmtPercent(v, dp = 1) {
+  if (v === null || v === undefined) return '—';
+  return `${Number(v).toFixed(dp)}%`;
+}
+function fmtRoas(v) {
+  if (v === null || v === undefined) return '—';
+  return `${Number(v).toFixed(2)}x`;
+}
+function fmtNumMetric(v) {
+  if (v === null || v === undefined) return '—';
+  return Number(v).toLocaleString('en-NZ', { maximumFractionDigits: 0 });
+}
+function fmtDays(v) {
+  if (v === null || v === undefined) return '—';
+  return `${Number(v).toFixed(1)}d`;
+}
+
 function toArr(v) {
   if (Array.isArray(v)) return v;
   if (v && Array.isArray(v.daily)) return v.daily;
@@ -67,6 +89,12 @@ function weekStart(dateStr) {
 export default function SalesMarketing() {
   const { queryParams } = useFilters();
 
+  const marketingPerfQ = useQuery({
+    queryKey: ['marketingPerformance', queryParams.startDate, queryParams.endDate],
+    queryFn: () => fetchMarketingPerformance({ startDate: queryParams.startDate, endDate: queryParams.endDate }),
+    enabled: !!(queryParams.startDate && queryParams.endDate),
+    retry: 1,
+  });
   const summaryQ       = useQuery({ queryKey: ['summary',          queryParams], queryFn: () => fetchSummary(queryParams) });
   const gDailyQ        = useQuery({ queryKey: ['googleDaily',      queryParams], queryFn: () => fetchGoogleDaily(queryParams) });
   const mDailyQ        = useQuery({ queryKey: ['metaDaily',        queryParams], queryFn: () => fetchMetaDaily(queryParams) });
@@ -316,6 +344,35 @@ export default function SalesMarketing() {
     return Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
   }, [ga4SessionsByWeek, mdLeadsQ.data, sdLeadsQ.data]);
 
+  const mp = marketingPerfQ.data;
+  const mpLoading = marketingPerfQ.isLoading || !mp;
+
+  const costPerEnquiryRows = mpLoading ? [] : [
+    { label: '$/MD Enquiry', fmt: v => fmtCurrency(v, 0), total: mp.costPerEnquiry.md.total, byDepot: mp.costPerEnquiry.md.byDepot },
+    { label: '$/SD Enquiry', fmt: v => fmtCurrency(v, 0), total: mp.costPerEnquiry.sd.total, byDepot: mp.costPerEnquiry.sd.byDepot },
+  ];
+
+  const costRoiRows = mpLoading ? [] : [
+    { label: 'Total Ad Spend', fmt: v => fmtCurrency(v, 0), total: mp.costRoi.totalAdSpend.total, byDepot: mp.costRoi.totalAdSpend.byDepot },
+    { label: 'ROAS MD',        fmt: fmtRoas,                total: mp.costRoi.roasMd.total,        byDepot: mp.costRoi.roasMd.byDepot },
+    { label: 'ROAS SD',        fmt: fmtRoas,                total: mp.costRoi.roasSd.total,        byDepot: mp.costRoi.roasSd.byDepot },
+  ];
+
+  const leadQualityRows = mpLoading ? [] : [
+    { label: 'Lead-to-Opportunity Rate (MD)',  fmt: fmtPercent, total: mp.leadQuality.leadToOpportunityRateMd.total,  byDepot: mp.leadQuality.leadToOpportunityRateMd.byDepot },
+    { label: 'Lead-to-Opportunity Rate (SD)',  fmt: fmtPercent, total: mp.leadQuality.leadToOpportunityRateSd.total,  byDepot: mp.leadQuality.leadToOpportunityRateSd.byDepot },
+    { label: 'Opportunity-to-Close Rate (MD)', fmt: fmtPercent, total: mp.leadQuality.opportunityToCloseRateMd.total, byDepot: mp.leadQuality.opportunityToCloseRateMd.byDepot },
+  ];
+
+  const pipelineHealthRows = mpLoading ? [] : [
+    { label: 'Total Open Opportunities (MD)', fmt: v => fmtNumMetric(v), total: mp.pipelineHealth.openOpportunitiesMd.total, byDepot: mp.pipelineHealth.openOpportunitiesMd.byDepot },
+    { label: 'Total Open Opportunities (SD)', fmt: v => fmtNumMetric(v), total: mp.pipelineHealth.openOpportunitiesSd.total, byDepot: mp.pipelineHealth.openOpportunitiesSd.byDepot },
+    { label: 'Pipeline Value — MD',           fmt: v => fmtCurrency(v, 0), total: mp.pipelineHealth.pipelineValueMd.total, byDepot: mp.pipelineHealth.pipelineValueMd.byDepot },
+    { label: 'Pipeline Value — SD',           fmt: v => fmtCurrency(v, 0), total: mp.pipelineHealth.pipelineValueSd.total, byDepot: mp.pipelineHealth.pipelineValueSd.byDepot },
+    { label: 'Avg. Deal Cycle Length — MD',   fmt: fmtDays, total: mp.pipelineHealth.avgDealCycleMd.total, byDepot: mp.pipelineHealth.avgDealCycleMd.byDepot },
+    { label: 'Avg. Deal Cycle Length — SD',   fmt: fmtDays, total: mp.pipelineHealth.avgDealCycleSd.total, byDepot: mp.pipelineHealth.avgDealCycleSd.byDepot },
+  ];
+
   return (
     <div className="p-6 space-y-6">
 
@@ -343,6 +400,12 @@ export default function SalesMarketing() {
             </div>
           );
         })()}
+
+        <div className="grid grid-cols-1 gap-4 mt-4">
+          <MetricTable title="Cost Per Enquiry (blended — total ad spend ÷ enquiries)" rows={costPerEnquiryRows} loading={mpLoading} />
+          <MetricTable title="Cost &amp; ROI" rows={costRoiRows} loading={mpLoading} />
+          <MetricTable title="Lead Quality" rows={leadQualityRows} loading={mpLoading} />
+        </div>
       </div>
 
       {/* ── MD Enquiry Conversion ────────────────────────────────────────── */}
@@ -395,6 +458,10 @@ export default function SalesMarketing() {
             </div>
           );
         })()}
+
+        <div className="mt-4">
+          <MetricTable title="Pipeline Health" rows={pipelineHealthRows} loading={mpLoading} />
+        </div>
       </div>
 
       {/* Charts */}

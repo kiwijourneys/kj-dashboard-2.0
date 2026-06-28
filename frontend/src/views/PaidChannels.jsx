@@ -5,7 +5,7 @@ import { fetchGoogleSummary, fetchMetaSummary, fetchGoogleDaily, fetchMetaDaily 
 import ErrorWidget from '../components/ErrorWidget';
 import {
   PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
-  LineChart, Line, XAxis, YAxis, CartesianGrid,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, ComposedChart, Bar,
 } from 'recharts';
 import { format, parseISO } from 'date-fns';
 
@@ -166,6 +166,52 @@ export default function PaidChannels() {
       }));
   }, [gDailyQ.data, mDailyQ.data, granularity]);
 
+  // Google spend + CTR/clicks over time (all campaigns)
+  const googleSpendCtrData = React.useMemo(() => {
+    const map = {};
+    for (const r of toArr(gDailyQ.data)) {
+      const key = periodKey(r.date);
+      if (!map[key]) map[key] = { spend: 0, impressions: 0, clicks: 0 };
+      map[key].spend += r.spendNzd || 0;
+      map[key].impressions += r.impressions || 0;
+      map[key].clicks += r.clicks || 0;
+    }
+    return Object.entries(map)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, r]) => ({
+        date: key,
+        spend: r.spend,
+        clicks: r.clicks,
+        ctr: r.impressions > 0 ? (r.clicks / r.impressions) * 100 : null,
+      }));
+  }, [gDailyQ.data, granularity]);
+
+  // Meta spend + CTR/clicks over time (all campaigns)
+  const metaSpendCtrData = React.useMemo(() => {
+    const map = {};
+    for (const r of toArr(mDailyQ.data)) {
+      const key = periodKey(r.date);
+      if (!map[key]) map[key] = { spend: 0, impressions: 0, clicks: 0 };
+      map[key].spend += r.spendNzd || 0;
+      map[key].impressions += r.impressions || 0;
+      map[key].clicks += r.clicks || 0;
+    }
+    return Object.entries(map)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, r]) => ({
+        date: key,
+        spend: r.spend,
+        clicks: r.clicks,
+        ctr: r.impressions > 0 ? (r.clicks / r.impressions) * 100 : null,
+      }));
+  }, [mDailyQ.data, granularity]);
+
+  function periodTickFormatter(d) {
+    return granularity === 'monthly'
+      ? (() => { try { return format(parseISO(d + '-01'), 'MMM yy'); } catch { return d; } })()
+      : fmtDate(d);
+  }
+
   if (googleQ.isError && metaQ.isError) {
     return <div className="p-6"><ErrorWidget message="Failed to load paid channel data" onRetry={() => { googleQ.refetch(); metaQ.refetch(); }} /></div>;
   }
@@ -268,6 +314,102 @@ export default function PaidChannels() {
                 <Line type="monotone" dataKey="Google CPL" stroke={GOOGLE_COLOR} dot={false} strokeWidth={2} connectNulls />
                 <Line type="monotone" dataKey="Meta CPL"   stroke={META_COLOR}   dot={false} strokeWidth={2} connectNulls />
               </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Google: Spend + CTR over time */}
+        <div className="card">
+          <h3 className="text-sm font-medium text-gray-700 mb-4">
+            Google Spend &amp; CTR Over Time
+            <span className="ml-2 text-xs text-gray-400 font-normal">({granularity} · all campaigns)</span>
+          </h3>
+          {googleSpendCtrData.length === 0 ? (
+            <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <ComposedChart data={googleSpendCtrData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="date" tickFormatter={periodTickFormatter} tick={{ fill: '#6b7280', fontSize: 11 }} />
+                <YAxis yAxisId="left" tickFormatter={v => v >= 1000 ? `$${(v/1000).toFixed(1)}k` : `$${v.toFixed(0)}`} tick={{ fill: '#6b7280', fontSize: 11 }} />
+                <YAxis yAxisId="right" orientation="right" tickFormatter={v => `${v.toFixed(1)}%`} tick={{ fill: '#6b7280', fontSize: 11 }} />
+                <Tooltip labelFormatter={periodTickFormatter} formatter={(v, name) => name === 'CTR' ? [`${v.toFixed(2)}%`, name] : [fmtNzd(v), name]} contentStyle={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 12, color: '#6b7280' }} />
+                <Bar yAxisId="left" dataKey="spend" name="Spend (NZD)" fill={GOOGLE_COLOR} radius={[3,3,0,0]} />
+                <Line yAxisId="right" type="monotone" dataKey="ctr" name="CTR" stroke="#0F6E56" dot={false} strokeWidth={2} connectNulls />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Google: Spend + Clicks over time */}
+        <div className="card">
+          <h3 className="text-sm font-medium text-gray-700 mb-4">
+            Google Spend &amp; Clicks Over Time
+            <span className="ml-2 text-xs text-gray-400 font-normal">({granularity} · all campaigns)</span>
+          </h3>
+          {googleSpendCtrData.length === 0 ? (
+            <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <ComposedChart data={googleSpendCtrData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="date" tickFormatter={periodTickFormatter} tick={{ fill: '#6b7280', fontSize: 11 }} />
+                <YAxis yAxisId="left" tickFormatter={v => v >= 1000 ? `$${(v/1000).toFixed(1)}k` : `$${v.toFixed(0)}`} tick={{ fill: '#6b7280', fontSize: 11 }} />
+                <YAxis yAxisId="right" orientation="right" tick={{ fill: '#6b7280', fontSize: 11 }} allowDecimals={false} />
+                <Tooltip labelFormatter={periodTickFormatter} formatter={(v, name) => name === 'Clicks' ? [v.toLocaleString(), name] : [fmtNzd(v), name]} contentStyle={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 12, color: '#6b7280' }} />
+                <Bar yAxisId="left" dataKey="spend" name="Spend (NZD)" fill={GOOGLE_COLOR} radius={[3,3,0,0]} />
+                <Line yAxisId="right" type="monotone" dataKey="clicks" name="Clicks" stroke="#a78bfa" dot={false} strokeWidth={2} connectNulls />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Meta: Spend + CTR over time */}
+        <div className="card">
+          <h3 className="text-sm font-medium text-gray-700 mb-4">
+            Meta Spend &amp; CTR Over Time
+            <span className="ml-2 text-xs text-gray-400 font-normal">({granularity} · all campaigns)</span>
+          </h3>
+          {metaSpendCtrData.length === 0 ? (
+            <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <ComposedChart data={metaSpendCtrData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="date" tickFormatter={periodTickFormatter} tick={{ fill: '#6b7280', fontSize: 11 }} />
+                <YAxis yAxisId="left" tickFormatter={v => v >= 1000 ? `$${(v/1000).toFixed(1)}k` : `$${v.toFixed(0)}`} tick={{ fill: '#6b7280', fontSize: 11 }} />
+                <YAxis yAxisId="right" orientation="right" tickFormatter={v => `${v.toFixed(1)}%`} tick={{ fill: '#6b7280', fontSize: 11 }} />
+                <Tooltip labelFormatter={periodTickFormatter} formatter={(v, name) => name === 'CTR' ? [`${v.toFixed(2)}%`, name] : [fmtNzd(v), name]} contentStyle={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 12, color: '#6b7280' }} />
+                <Bar yAxisId="left" dataKey="spend" name="Spend (NZD)" fill={META_COLOR} radius={[3,3,0,0]} />
+                <Line yAxisId="right" type="monotone" dataKey="ctr" name="CTR" stroke="#0F6E56" dot={false} strokeWidth={2} connectNulls />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Meta: Spend + Clicks over time */}
+        <div className="card">
+          <h3 className="text-sm font-medium text-gray-700 mb-4">
+            Meta Spend &amp; Clicks Over Time
+            <span className="ml-2 text-xs text-gray-400 font-normal">({granularity} · all campaigns)</span>
+          </h3>
+          {metaSpendCtrData.length === 0 ? (
+            <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <ComposedChart data={metaSpendCtrData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="date" tickFormatter={periodTickFormatter} tick={{ fill: '#6b7280', fontSize: 11 }} />
+                <YAxis yAxisId="left" tickFormatter={v => v >= 1000 ? `$${(v/1000).toFixed(1)}k` : `$${v.toFixed(0)}`} tick={{ fill: '#6b7280', fontSize: 11 }} />
+                <YAxis yAxisId="right" orientation="right" tick={{ fill: '#6b7280', fontSize: 11 }} allowDecimals={false} />
+                <Tooltip labelFormatter={periodTickFormatter} formatter={(v, name) => name === 'Clicks' ? [v.toLocaleString(), name] : [fmtNzd(v), name]} contentStyle={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 12, color: '#6b7280' }} />
+                <Bar yAxisId="left" dataKey="spend" name="Spend (NZD)" fill={META_COLOR} radius={[3,3,0,0]} />
+                <Line yAxisId="right" type="monotone" dataKey="clicks" name="Clicks" stroke="#a78bfa" dot={false} strokeWidth={2} connectNulls />
+              </ComposedChart>
             </ResponsiveContainer>
           )}
         </div>
