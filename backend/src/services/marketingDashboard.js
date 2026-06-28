@@ -51,6 +51,7 @@ async function getMarketingPerformance({ startDate, endDate } = {}) {
     pipelineHealthMd, pipelineHealthSd,
     oppRatesMd, oppRatesSd,
     metaPerf, gadsPerf,
+    metaTourType, gadsTourType,
   ] = await Promise.all([
     hubspot.getMultiDayLeads({ startDate, endDate }),
     hubspot.getSingleDayLeads({ startDate, endDate }),
@@ -64,6 +65,8 @@ async function getMarketingPerformance({ startDate, endDate } = {}) {
     hubspot.getOpportunityRates({ pipeline: 'sd', startDate, endDate }),
     meta.getDepotPerformance({ startDate, endDate }),
     googleAds.getDepotPerformance({ startDate, endDate }),
+    meta.getTourTypeDepotPerformance({ startDate, endDate }),
+    googleAds.getTourTypeDepotPerformance({ startDate, endDate }),
   ]);
 
   const mdEnquiry = bucketDeals(mdLeads.deals);
@@ -79,18 +82,35 @@ async function getMarketingPerformance({ startDate, endDate } = {}) {
     ])),
   };
 
-  // ── Cost Per Enquiry (blended — total ad spend ÷ enquiries) ────────────────
+  // ── Cost Per Enquiry (real spend attribution by campaign/adset tour-type tag) ─
+  // Google campaigns and Meta adsets are tagged with tour type (e.g. "SEM - NZ -
+  // Cromwell - Multi Day", "NZ| One Day Tours | Nelson"). This sums actual MD-
+  // tagged and SD-tagged spend separately, rather than dividing total spend by
+  // each enquiry count (which double-counts spend across both types).
+  function tourTypeSpend(depot, type) {
+    const gBucket = depot === 'all'
+      ? Object.values(gadsTourType.byDepot).reduce((s, d) => s + (d[type]?.spendNzd || 0), 0)
+      : (gadsTourType.byDepot[depot]?.[type]?.spendNzd || 0);
+    const mBucket = depot === 'all'
+      ? Object.values(metaTourType.byDepot).reduce((s, d) => s + (d[type]?.spendNzd || 0), 0)
+      : (metaTourType.byDepot[depot]?.[type]?.spendNzd || 0);
+    return gBucket + mBucket;
+  }
+
+  const unclassifiedSpendNzd = tourTypeSpend('all', 'Unclassified');
+
   const costPerEnquiry = {
     md: {
-      total: cpl(totalAdSpend.total, mdEnquiry.total.count),
+      total: cpl(tourTypeSpend('all', 'MD'), mdEnquiry.total.count),
       byDepot: Object.fromEntries(ALL_DEPOTS.map(d =>
-        [d, cpl(totalAdSpend.byDepot[d], mdEnquiry.byDepot[d].count)])),
+        [d, cpl(tourTypeSpend(d, 'MD'), mdEnquiry.byDepot[d].count)])),
     },
     sd: {
-      total: cpl(totalAdSpend.total, sdEnquiry.total.count),
+      total: cpl(tourTypeSpend('all', 'SD'), sdEnquiry.total.count),
       byDepot: Object.fromEntries(ALL_DEPOTS.map(d =>
-        [d, cpl(totalAdSpend.byDepot[d], sdEnquiry.byDepot[d].count)])),
+        [d, cpl(tourTypeSpend(d, 'SD'), sdEnquiry.byDepot[d].count)])),
     },
+    unclassifiedSpendNzd,
   };
 
   // ── Attributed Performance (channel-specific via HubSpot source tracking) ──

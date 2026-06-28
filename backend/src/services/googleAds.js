@@ -116,6 +116,22 @@ function campaignToDepot(name) {
   return null;
 }
 
+// ── Campaign → tour type mapping ──────────────────────────────────────────────
+// Naming convention is explicit: "SEM - NZ - Cromwell - Multi Day" / "... - Single Day / Bike Hire".
+// Brand, Trails-only, Pmax, and AU-general campaigns don't target one specific tour
+// type, so they're left Unclassified rather than guessed.
+const CAMPAIGN_TOUR_TYPE_RULES = [
+  { pattern: /multi[\s_-]*day/i,                      type: 'MD' },
+  { pattern: /single[\s_-]*day|bike[\s_-]*hire/i,      type: 'SD' },
+];
+
+function campaignToTourType(name) {
+  for (const { pattern, type } of CAMPAIGN_TOUR_TYPE_RULES) {
+    if (pattern.test(name)) return type;
+  }
+  return 'Unclassified';
+}
+
 // ── Campaign-level detail ─────────────────────────────────────────────────────
 
 async function getCampaigns({ startDate, endDate, region } = {}) {
@@ -323,11 +339,49 @@ async function getDepotPerformance({ startDate, endDate } = {}) {
   });
 }
 
+const TOUR_TYPES = ['MD', 'SD', 'Unclassified'];
+
+/**
+ * Spend/impressions/clicks/conversions bucketed by BOTH depot and tour type
+ * (MD/SD/Unclassified), single campaign-level fetch. Campaign names carry
+ * both tags (e.g. "SEM - NZ - Cromwell - Multi Day" = Central Otago + MD),
+ * so this gives real spend attribution for $/MD Enquiry and $/SD Enquiry —
+ * not a guess based on total spend.
+ */
+async function getTourTypeDepotPerformance({ startDate, endDate } = {}) {
+  if (!isConfigured()) return { byDepot: {} };
+
+  const cacheKey = buildKey(NAMESPACES.GOOGLE_ADS, 'tourTypeDepotPerformance', startDate, endDate);
+  return getOrFetch(cacheKey, async () => {
+    const allCampaigns = await getCampaigns({ startDate, endDate });
+    const list = Array.isArray(allCampaigns) ? allCampaigns : [];
+
+    const emptyBucket = () => ({ spendNzd: 0, impressions: 0, clicks: 0, conversions: 0 });
+    const byDepot = {};
+    for (const d of ALL_DEPOTS) {
+      byDepot[d] = {};
+      for (const t of TOUR_TYPES) byDepot[d][t] = emptyBucket();
+    }
+
+    for (const c of list) {
+      const depot = campaignToDepot(c.name) || 'General';
+      const tourType = campaignToTourType(c.name);
+      const bucket = byDepot[depot]?.[tourType];
+      if (!bucket) continue;
+      bucket.spendNzd += c.spendNzd; bucket.impressions += c.impressions;
+      bucket.clicks += c.clicks; bucket.conversions += c.conversions;
+    }
+
+    return { byDepot };
+  });
+}
+
 module.exports = {
   getSummary,
   getCampaigns,
   getDailySpend,
   getDepotDailySpend,
   getDepotPerformance,
+  getTourTypeDepotPerformance,
   isConfigured,
 };

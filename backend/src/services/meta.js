@@ -28,6 +28,22 @@ function adsetToDepot(name) {
   return null;
 }
 
+// ── Adset → tour type mapping ─────────────────────────────────────────────────
+// Meta's naming taxonomy only explicitly tags the exception: "One Day Tours"
+// (single-day/bike-hire). Everything else — Summer/Autumn/Spring Tour campaigns,
+// 90-Day Remarketing — targets Kiwi Journeys' core multi-day tour product, so
+// is classified MD by default rather than left unclassified.
+const ADSET_TOUR_TYPE_RULES = [
+  { pattern: /one[\s_-]*day|bike[\s_-]*hire/i, type: 'SD' },
+];
+
+function adsetToTourType(name) {
+  for (const { pattern, type } of ADSET_TOUR_TYPE_RULES) {
+    if (pattern.test(name)) return type;
+  }
+  return 'MD';
+}
+
 function metaUrl(path) {
   return `${META_BASE}/${API_VERSION}/${path}`;
 }
@@ -327,11 +343,71 @@ async function getDepotPerformance({ startDate, endDate } = {}) {
   });
 }
 
+const TOUR_TYPES = ['MD', 'SD'];
+
+/**
+ * Spend/impressions/clicks/leads bucketed by BOTH depot and tour type
+ * (MD/SD), single adset-level fetch. Adset names carry both tags (e.g.
+ * "NZ| One Day Tours | Nelson Specific Tours" = Nelson + SD), giving real
+ * spend attribution for $/MD Enquiry and $/SD Enquiry.
+ */
+async function getTourTypeDepotPerformance({ startDate, endDate } = {}) {
+  const cacheKey = buildKey(NAMESPACES.META, 'tourTypeDepotPerformance', startDate, endDate);
+  return getOrFetch(cacheKey, async () => {
+    const timeRange = buildTimeRange(startDate, endDate);
+    const params = {
+      ...defaultParams(),
+      fields: 'adset_name,spend,impressions,clicks,actions',
+      level: 'adset',
+      ...(timeRange ? { time_range: timeRange } : { date_preset: 'this_month' }),
+      limit: 500,
+    };
+
+    const rows = [];
+    let url = metaUrl(`act_${config.meta.adAccountId}/insights`);
+
+    while (url) {
+      const resp = await axios.get(url, { params: url.includes('?') ? {} : params });
+      rows.push(...(resp.data.data || []));
+      url = resp.data.paging?.next || null;
+    }
+
+    recordSync('meta');
+
+    const emptyBucket = () => ({ spendNzd: 0, impressions: 0, clicks: 0, leads: 0 });
+    const byDepot = {};
+    for (const d of ALL_DEPOTS) {
+      byDepot[d] = {};
+      for (const t of TOUR_TYPES) byDepot[d][t] = emptyBucket();
+    }
+
+    for (const row of rows) {
+      const depot = adsetToDepot(row.adset_name || '') || 'General';
+      const tourType = adsetToTourType(row.adset_name || '');
+      const bucket = byDepot[depot]?.[tourType];
+      if (!bucket) continue;
+
+      const actions = row.actions || [];
+      const leads = actions
+        .filter(a => ['lead', 'offsite_conversion.fb_pixel_lead', 'onsite_conversion.lead_grouped'].includes(a.action_type))
+        .reduce((sum, a) => sum + parseInt(a.value || 0, 10), 0);
+
+      bucket.spendNzd += toNzd(row.spend);
+      bucket.impressions += parseInt(row.impressions || 0, 10);
+      bucket.clicks += parseInt(row.clicks || 0, 10);
+      bucket.leads += leads;
+    }
+
+    return { byDepot };
+  });
+}
+
 module.exports = {
   getSummary,
   getCampaigns,
   getDailySpend,
   getDepotDailySpend,
   getDepotPerformance,
+  getTourTypeDepotPerformance,
   toNzd,
 };
