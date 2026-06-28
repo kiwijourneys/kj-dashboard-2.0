@@ -61,6 +61,8 @@ export const fetchXeroIncomeByPeriod = (params) => api.get('/xero/income-by-peri
 // ── Marketing performance dashboard ──────────────────────────────────────────
 export const fetchMarketingPerformance = (params) =>
   api.get('/marketing/performance', { params: toQs(params) }).then(r => r.data);
+export const fetchAdAttribution = (params) =>
+  api.get('/marketing/attribution', { params: toQs(params) }).then(r => r.data);
 
 // ── Alerts / config ───────────────────────────────────────────────────────────
 export const fetchAlertConfig    = ()       => api.get('/alerts/config').then(r => r.data);
