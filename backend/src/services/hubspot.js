@@ -20,6 +20,8 @@ const OWNER_REGION_MAP = {
   '359217255': 'Nelson',         // nelson@kiwijourneys.co.nz
 };
 
+const ALL_DEPOTS = ['Nelson', 'West Coast', 'Central Otago', 'Kawarau Gorge'];
+
 /**
  * Normalise a HubSpot location value into canonical region names.
  * Returns an array because a deal can have multiple regions (semicolon-delimited).
@@ -46,6 +48,17 @@ function matchesRegion(locationValue, targetRegion, ownerId) {
   if (!targetRegion) return true;
   const regions = normaliseRegions(locationValue, ownerId);
   return regions.includes(targetRegion);
+}
+
+/**
+ * Classify a deal's original source into a channel bucket using HubSpot's
+ * native analytics source tracking (hs_analytics_source).
+ * PAID_SOCIAL covers Facebook/Instagram (Meta) ads; PAID_SEARCH covers Google/Bing.
+ */
+function classifySource(sourceValue) {
+  if (sourceValue === 'PAID_SOCIAL') return 'meta';
+  if (sourceValue === 'PAID_SEARCH') return 'gads';
+  return 'other';
 }
 
 /**
@@ -109,6 +122,7 @@ async function searchDeals(filters, properties = [], limit = 100) {
     'createdate', 'closedate', 'hs_lastmodifieddate',
     'location', 'deal_currency_code', 'hs_date_entered_closedwon',
     'start_date', 'hubspot_owner_id',
+    'hs_analytics_source', 'hs_analytics_source_data_1', 'hs_analytics_source_data_2',
   ];
   const allProperties = [...new Set([...defaultProperties, ...properties])];
 
@@ -664,6 +678,183 @@ async function getDealsWithNoRegion() {
   });
 }
 
+// ── Marketing performance dashboard helpers ───────────────────────────────────
+
+/**
+ * Attributed lead counts by channel (Meta vs Google Ads vs Other), using
+ * HubSpot's native original-source tracking (hs_analytics_source).
+ * Fetches deals once and buckets by depot in a single pass.
+ */
+async function getAttributedLeadCounts({ pipeline, startDate, endDate } = {}) {
+  const cacheKey = buildKey(NAMESPACES.HUBSPOT, 'attributedLeads', pipeline, startDate || 'all', endDate || 'all');
+  return getOrFetch(cacheKey, async () => {
+    const dateFilters = [
+      ...(startDate ? [{ propertyName: 'createdate', operator: 'GTE', value: toMs(startDate).toString() }] : []),
+      ...(endDate   ? [{ propertyName: 'createdate', operator: 'LTE', value: (toMs(endDate) + 86_399_999).toString() }] : []),
+    ];
+    const pipelineId = pipeline === 'md' ? config.hubspot.multiDaySalesPipelineId : config.hubspot.singleDayPipelineId;
+    const deals = await searchDeals([{ propertyName: 'pipeline', operator: 'EQ', value: pipelineId }, ...dateFilters]);
+    recordSync('hubspot');
+
+    const emptyBucket = () => ({ total: 0, meta: 0, gads: 0, other: 0 });
+    const totals = emptyBucket();
+    const byDepot = {};
+    for (const d of ALL_DEPOTS) byDepot[d] = emptyBucket();
+
+    for (const deal of deals) {
+      const p = deal.properties;
+      const source = classifySource(p.hs_analytics_source);
+      const regions = normaliseRegions(p.location, p.hubspot_owner_id).filter(r => ALL_DEPOTS.includes(r));
+      totals.total++; totals[source]++;
+      for (const r of regions) { byDepot[r].total++; byDepot[r][source]++; }
+    }
+
+    return { total: totals, byDepot };
+  });
+}
+
+const MD_WON_STAGE = '1547076045';   // Booking Admin Complete (ops)
+const MD_LOST_STAGES = new Set(['1547076042', '1547076049', '2518923720']); // sales CL, ops CL, cancelled
+
+/**
+ * Open opportunity counts/value and average deal-cycle length, fetched once
+ * per pipeline and bucketed by depot. "Open" = not yet won or lost.
+ */
+async function getPipelineHealth({ pipeline, startDate, endDate } = {}) {
+  const cacheKey = buildKey(NAMESPACES.HUBSPOT, 'pipelineHealth', pipeline, startDate || 'all', endDate || 'all');
+  return getOrFetch(cacheKey, async () => {
+    const dateFilters = [
+      ...(startDate ? [{ propertyName: 'createdate', operator: 'GTE', value: toMs(startDate).toString() }] : []),
+      ...(endDate   ? [{ propertyName: 'createdate', operator: 'LTE', value: (toMs(endDate) + 86_399_999).toString() }] : []),
+    ];
+
+    let deals;
+    if (pipeline === 'md') {
+      const [salesDeals, opsDeals] = await Promise.all([
+        searchDeals([{ propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.multiDaySalesPipelineId }, ...dateFilters]),
+        searchDeals([{ propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.multiDayOpsPipelineId }, ...dateFilters]),
+      ]);
+      deals = [...salesDeals, ...opsDeals];
+    } else {
+      deals = await searchDeals([{ propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.singleDayPipelineId }, ...dateFilters]);
+    }
+    recordSync('hubspot');
+
+    const { complete, bookingAdminComplete, closedLost } = config.hubspot.singleDayStages;
+    const isWon = (stage) => pipeline === 'md' ? stage === MD_WON_STAGE : (stage === complete || stage === bookingAdminComplete);
+    const isLost = (stage) => pipeline === 'md' ? MD_LOST_STAGES.has(stage) : stage === closedLost;
+    const isOpen = (stage) => !isWon(stage) && !isLost(stage);
+
+    const emptyBucket = () => ({ openCount: 0, openValue: 0, closedCount: 0, totalCycleDays: 0 });
+    const totals = emptyBucket();
+    const byDepot = {};
+    for (const d of ALL_DEPOTS) byDepot[d] = emptyBucket();
+
+    for (const deal of deals) {
+      const p = deal.properties;
+      const stage = p.dealstage;
+      const regions = normaliseRegions(p.location, p.hubspot_owner_id).filter(r => ALL_DEPOTS.includes(r));
+      const amount = p.amount ? parseFloat(p.amount) : 0;
+
+      if (isOpen(stage)) {
+        totals.openCount++; totals.openValue += amount;
+        for (const r of regions) { byDepot[r].openCount++; byDepot[r].openValue += amount; }
+      } else if (isWon(stage)) {
+        const closeTs  = p.closedate ? new Date(p.closedate).getTime() : (p.hs_lastmodifieddate ? new Date(p.hs_lastmodifieddate).getTime() : null);
+        const createTs = p.createdate ? new Date(p.createdate).getTime() : null;
+        if (closeTs && createTs && closeTs > createTs) {
+          const days = (closeTs - createTs) / 86_400_000;
+          totals.closedCount++; totals.totalCycleDays += days;
+          for (const r of regions) { byDepot[r].closedCount++; byDepot[r].totalCycleDays += days; }
+        }
+      }
+    }
+
+    const finalize = (b) => ({
+      openCount: b.openCount,
+      openValueNzd: b.openValue,
+      avgDealCycleDays: b.closedCount > 0 ? b.totalCycleDays / b.closedCount : null,
+    });
+
+    return {
+      total: finalize(totals),
+      byDepot: Object.fromEntries(ALL_DEPOTS.map(d => [d, finalize(byDepot[d])])),
+    };
+  });
+}
+
+/**
+ * Lead-to-Opportunity and Opportunity-to-Close rates.
+ * MD reuses the existing funnel depth logic (Opportunity = Tour Discovery Had).
+ * SD has no stage-history tracking, so it approximates using current stage —
+ * Opportunity = qualifiedtobuy or beyond.
+ */
+async function getOpportunityRates({ pipeline, startDate, endDate } = {}) {
+  const cacheKey = buildKey(NAMESPACES.HUBSPOT, 'oppRates', pipeline, startDate || 'all', endDate || 'all');
+  return getOrFetch(cacheKey, async () => {
+    if (pipeline === 'md') {
+      const regions = [null, ...ALL_DEPOTS];
+      const funnels = await Promise.all(regions.map(r => getMultiDayFunnel({ startDate, endDate, region: r })));
+      const fromFunnel = (f) => {
+        const totalEnquiries = f.stages[0].count;
+        const opportunities  = f.stages[2].count; // Tour Discovery Had
+        const closedWon      = f.stages[f.stages.length - 1].count; // Booking Admin Complete
+        return {
+          totalEnquiries, opportunities, closedWon,
+          leadToOpportunityRate:  totalEnquiries > 0 ? (opportunities / totalEnquiries) * 100 : null,
+          opportunityToCloseRate: opportunities  > 0 ? (closedWon / opportunities) * 100      : null,
+        };
+      };
+      return {
+        total: fromFunnel(funnels[0]),
+        byDepot: Object.fromEntries(ALL_DEPOTS.map((d, i) => [d, fromFunnel(funnels[i + 1])])),
+      };
+    }
+
+    const dateFilters = [
+      ...(startDate ? [{ propertyName: 'createdate', operator: 'GTE', value: toMs(startDate).toString() }] : []),
+      ...(endDate   ? [{ propertyName: 'createdate', operator: 'LTE', value: (toMs(endDate) + 86_399_999).toString() }] : []),
+    ];
+    const deals = await searchDeals([{ propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.singleDayPipelineId }, ...dateFilters]);
+    recordSync('hubspot');
+
+    const { allocated, inProgress, bookingAdminComplete, complete } = config.hubspot.singleDayStages;
+    const OPPORTUNITY_STAGES = new Set([allocated, inProgress, bookingAdminComplete, complete]);
+    const WON_STAGES = new Set([bookingAdminComplete, complete]);
+
+    const emptyBucket = () => ({ totalEnquiries: 0, opportunities: 0, closedWon: 0 });
+    const totals = emptyBucket();
+    const byDepot = {};
+    for (const d of ALL_DEPOTS) byDepot[d] = emptyBucket();
+
+    for (const deal of deals) {
+      const p = deal.properties;
+      const regions = normaliseRegions(p.location, p.hubspot_owner_id).filter(r => ALL_DEPOTS.includes(r));
+      const isOpp = OPPORTUNITY_STAGES.has(p.dealstage);
+      const isWon = WON_STAGES.has(p.dealstage);
+      totals.totalEnquiries++;
+      if (isOpp) totals.opportunities++;
+      if (isWon) totals.closedWon++;
+      for (const r of regions) {
+        byDepot[r].totalEnquiries++;
+        if (isOpp) byDepot[r].opportunities++;
+        if (isWon) byDepot[r].closedWon++;
+      }
+    }
+
+    const finalize = (b) => ({
+      ...b,
+      leadToOpportunityRate:  b.totalEnquiries > 0 ? (b.opportunities / b.totalEnquiries) * 100 : null,
+      opportunityToCloseRate: b.opportunities  > 0 ? (b.closedWon / b.opportunities) * 100      : null,
+    });
+
+    return {
+      total: finalize(totals),
+      byDepot: Object.fromEntries(ALL_DEPOTS.map(d => [d, finalize(byDepot[d])])),
+    };
+  });
+}
+
 module.exports = {
   getMultiDayLeads,
   getMultiDayClosedWon,
@@ -674,6 +865,10 @@ module.exports = {
   getSingleDayActual,
   getMultiDayFunnel,
   getDealsWithNoRegion,
+  getAttributedLeadCounts,
+  getPipelineHealth,
+  getOpportunityRates,
   normaliseRegions,
   matchesRegion,
+  ALL_DEPOTS,
 };

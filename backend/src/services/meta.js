@@ -262,10 +262,76 @@ async function getDepotDailySpend({ startDate, endDate } = {}) {
   });
 }
 
+/**
+ * Full performance metrics (spend, impressions, clicks, leads/results) broken
+ * down by depot — single adset-level fetch, aggregated in one pass.
+ * Unlike getDepotDailySpend, this isn't bucketed by day (no time_increment),
+ * so it's lighter and suitable for "Total & per Depot" KPI tables.
+ */
+async function getDepotPerformance({ startDate, endDate } = {}) {
+  const cacheKey = buildKey(NAMESPACES.META, 'depotPerformance', startDate, endDate);
+  return getOrFetch(cacheKey, async () => {
+    const timeRange = buildTimeRange(startDate, endDate);
+    const params = {
+      ...defaultParams(),
+      fields: 'adset_name,spend,impressions,clicks,ctr,actions',
+      level: 'adset',
+      ...(timeRange ? { time_range: timeRange } : { date_preset: 'this_month' }),
+      limit: 500,
+    };
+
+    const rows = [];
+    let url = metaUrl(`act_${config.meta.adAccountId}/insights`);
+
+    while (url) {
+      const resp = await axios.get(url, { params: url.includes('?') ? {} : params });
+      rows.push(...(resp.data.data || []));
+      url = resp.data.paging?.next || null;
+    }
+
+    recordSync('meta');
+
+    const emptyBucket = () => ({ spendNzd: 0, impressions: 0, clicks: 0, leads: 0 });
+    const totals = emptyBucket();
+    const byDepot = {};
+    for (const d of ALL_DEPOTS) byDepot[d] = emptyBucket();
+
+    for (const row of rows) {
+      const depot = adsetToDepot(row.adset_name || '') || 'General';
+      const spendNzd = toNzd(row.spend);
+      const impressions = parseInt(row.impressions || 0, 10);
+      const clicks = parseInt(row.clicks || 0, 10);
+      const actions = row.actions || [];
+      const leads = actions
+        .filter(a => ['lead', 'offsite_conversion.fb_pixel_lead', 'onsite_conversion.lead_grouped'].includes(a.action_type))
+        .reduce((sum, a) => sum + parseInt(a.value || 0, 10), 0);
+
+      totals.spendNzd += spendNzd; totals.impressions += impressions; totals.clicks += clicks; totals.leads += leads;
+      if (byDepot[depot]) {
+        byDepot[depot].spendNzd += spendNzd; byDepot[depot].impressions += impressions;
+        byDepot[depot].clicks += clicks; byDepot[depot].leads += leads;
+      }
+    }
+
+    const finalize = (b) => ({
+      ...b,
+      ctr: b.impressions > 0 ? b.clicks / b.impressions : null,
+      cpcNzd: b.clicks > 0 ? b.spendNzd / b.clicks : null,
+      costPerResultNzd: b.leads > 0 ? b.spendNzd / b.leads : null,
+    });
+
+    return {
+      total: finalize(totals),
+      byDepot: Object.fromEntries(ALL_DEPOTS.filter(d => d !== 'General').map(d => [d, finalize(byDepot[d])])),
+    };
+  });
+}
+
 module.exports = {
   getSummary,
   getCampaigns,
   getDailySpend,
   getDepotDailySpend,
+  getDepotPerformance,
   toNzd,
 };

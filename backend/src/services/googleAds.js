@@ -182,6 +182,7 @@ async function getSummary({ startDate, endDate, region } = {}) {
       impressions: totalImpressions,
       clicks: totalClicks,
       ctr: totalImpressions > 0 ? totalClicks / totalImpressions : 0,
+      cpcNzd: totalClicks > 0 ? totalSpendNzd / totalClicks : null,
       conversions: totalConversions,
       costPerConversionNzd: totalConversions > 0 ? totalSpendNzd / totalConversions : null,
     };
@@ -281,10 +282,52 @@ async function getDepotDailySpend({ startDate, endDate } = {}) {
   });
 }
 
+/**
+ * Full performance metrics (spend, impressions, clicks, conversions) broken
+ * down by depot — single campaign-level fetch, aggregated in one pass.
+ */
+async function getDepotPerformance({ startDate, endDate } = {}) {
+  if (!isConfigured()) return { total: null, byDepot: {} };
+
+  const cacheKey = buildKey(NAMESPACES.GOOGLE_ADS, 'depotPerformance', startDate, endDate);
+  return getOrFetch(cacheKey, async () => {
+    const allCampaigns = await getCampaigns({ startDate, endDate }); // no region filter — fetch once
+    const list = Array.isArray(allCampaigns) ? allCampaigns : [];
+
+    const emptyBucket = () => ({ spendNzd: 0, impressions: 0, clicks: 0, conversions: 0 });
+    const totals = emptyBucket();
+    const byDepot = {};
+    for (const d of ALL_DEPOTS) byDepot[d] = emptyBucket();
+
+    for (const c of list) {
+      const depot = campaignToDepot(c.name) || 'General';
+      totals.spendNzd += c.spendNzd; totals.impressions += c.impressions;
+      totals.clicks += c.clicks; totals.conversions += c.conversions;
+      if (byDepot[depot]) {
+        byDepot[depot].spendNzd += c.spendNzd; byDepot[depot].impressions += c.impressions;
+        byDepot[depot].clicks += c.clicks; byDepot[depot].conversions += c.conversions;
+      }
+    }
+
+    const finalize = (b) => ({
+      ...b,
+      ctr: b.impressions > 0 ? b.clicks / b.impressions : null,
+      cpcNzd: b.clicks > 0 ? b.spendNzd / b.clicks : null,
+      costPerConversionNzd: b.conversions > 0 ? b.spendNzd / b.conversions : null,
+    });
+
+    return {
+      total: finalize(totals),
+      byDepot: Object.fromEntries(ALL_DEPOTS.filter(d => d !== 'General').map(d => [d, finalize(byDepot[d])])),
+    };
+  });
+}
+
 module.exports = {
   getSummary,
   getCampaigns,
   getDailySpend,
   getDepotDailySpend,
+  getDepotPerformance,
   isConfigured,
 };
