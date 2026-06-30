@@ -51,17 +51,6 @@ function matchesRegion(locationValue, targetRegion, ownerId) {
 }
 
 /**
- * Classify a deal's original source into a channel bucket using HubSpot's
- * native analytics source tracking (hs_analytics_source).
- * PAID_SOCIAL covers Facebook/Instagram (Meta) ads; PAID_SEARCH covers Google/Bing.
- */
-function classifySource(sourceValue) {
-  if (sourceValue === 'PAID_SOCIAL') return 'meta';
-  if (sourceValue === 'PAID_SEARCH') return 'gads';
-  return 'other';
-}
-
-/**
  * Convert a YYYY-MM-DD date string to milliseconds for HubSpot API filters.
  * HubSpot reports use NZ time (Pacific/Auckland = UTC+12/+13).
  * Treating the date as midnight NZT means going 12-13 hours earlier in UTC,
@@ -741,39 +730,6 @@ async function getDealsWithNoRegion() {
 
 // ── Marketing performance dashboard helpers ───────────────────────────────────
 
-/**
- * Attributed lead counts by channel (Meta vs Google Ads vs Other), using
- * HubSpot's native original-source tracking (hs_analytics_source).
- * Fetches deals once and buckets by depot in a single pass.
- */
-async function getAttributedLeadCounts({ pipeline, startDate, endDate } = {}) {
-  const cacheKey = buildKey(NAMESPACES.HUBSPOT, 'attributedLeads', pipeline, startDate || 'all', endDate || 'all');
-  return getOrFetch(cacheKey, async () => {
-    const dateFilters = [
-      ...(startDate ? [{ propertyName: 'createdate', operator: 'GTE', value: toMs(startDate).toString() }] : []),
-      ...(endDate   ? [{ propertyName: 'createdate', operator: 'LTE', value: (toMs(endDate) + 86_399_999).toString() }] : []),
-    ];
-    const pipelineId = pipeline === 'md' ? config.hubspot.multiDaySalesPipelineId : config.hubspot.singleDayPipelineId;
-    const deals = await searchDeals([{ propertyName: 'pipeline', operator: 'EQ', value: pipelineId }, ...dateFilters]);
-    recordSync('hubspot');
-
-    const emptyBucket = () => ({ total: 0, meta: 0, gads: 0, other: 0 });
-    const totals = emptyBucket();
-    const byDepot = {};
-    for (const d of ALL_DEPOTS) byDepot[d] = emptyBucket();
-
-    for (const deal of deals) {
-      const p = deal.properties;
-      const source = classifySource(p.hs_analytics_source);
-      const regions = normaliseRegions(p.location, p.hubspot_owner_id).filter(r => ALL_DEPOTS.includes(r));
-      totals.total++; totals[source]++;
-      for (const r of regions) { byDepot[r].total++; byDepot[r][source]++; }
-    }
-
-    return { total: totals, byDepot };
-  });
-}
-
 const MD_WON_STAGE = '1547076045';   // Booking Admin Complete (ops)
 const MD_LOST_STAGES = new Set(['1547076042', '1547076049', '2518923720']); // sales CL, ops CL, cancelled
 
@@ -930,7 +886,6 @@ module.exports = {
   getSingleDayActual,
   getMultiDayFunnel,
   getDealsWithNoRegion,
-  getAttributedLeadCounts,
   getPipelineHealth,
   getOpportunityRates,
   normaliseRegions,

@@ -10,6 +10,7 @@
 const hubspot  = require('./hubspot');
 const meta     = require('./meta');
 const googleAds = require('./googleAds');
+const attribution = require('./attribution');
 const { cpl } = require('./metrics');
 
 const { ALL_DEPOTS } = hubspot;
@@ -47,7 +48,7 @@ async function getMarketingPerformance({ startDate, endDate } = {}) {
   // ── Fetch everything in parallel ────────────────────────────────────────────
   const [
     mdLeads, sdLeads, mdClosed, sdClosed,
-    attributedMd, attributedSd,
+    clickAttribution,
     pipelineHealthMd, pipelineHealthSd,
     oppRatesMd,
     metaPerf, gadsPerf,
@@ -57,8 +58,7 @@ async function getMarketingPerformance({ startDate, endDate } = {}) {
     hubspot.getSingleDayLeads({ startDate, endDate }),
     hubspot.getMultiDayClosedWon({ startDate, endDate }),
     hubspot.getSingleDayClosedWon({ startDate, endDate }),
-    hubspot.getAttributedLeadCounts({ pipeline: 'md', startDate, endDate }),
-    hubspot.getAttributedLeadCounts({ pipeline: 'sd', startDate, endDate }),
+    attribution.getClickIdAttributionByDepot({ startDate, endDate }),
     hubspot.getPipelineHealth({ pipeline: 'md', startDate, endDate }),
     hubspot.getPipelineHealth({ pipeline: 'sd', startDate, endDate }),
     hubspot.getOpportunityRates({ startDate, endDate }),
@@ -102,19 +102,19 @@ async function getMarketingPerformance({ startDate, endDate } = {}) {
     unclassifiedSpendNzd,
   };
 
-  // ── Attributed Performance (channel-specific via HubSpot source tracking) ──
-  // Combines MD+SD attributed enquiry counts per channel, divided by that
-  // channel's own full spend — avoids double-counting spend across MD/SD rows.
+  // ── Attributed Performance (click-ID based — same hard signal as the Ad
+  // Attribution stat cards, rather than HubSpot's deal-level hs_analytics_source
+  // field, which significantly undercounts vs. literal click-ID presence) ──
   const attributedPerformance = {
     metaEnquiries: {
-      total: cpl(metaPerf.total?.spendNzd, attributedMd.total.meta + attributedSd.total.meta),
+      total: cpl(metaPerf.total?.spendNzd, clickAttribution.total.meta),
       byDepot: Object.fromEntries(ALL_DEPOTS.map(d =>
-        [d, cpl(metaPerf.byDepot[d]?.spendNzd, attributedMd.byDepot[d].meta + attributedSd.byDepot[d].meta)])),
+        [d, cpl(metaPerf.byDepot[d]?.spendNzd, clickAttribution.byDepot[d].meta)])),
     },
     gadsEnquiries: {
-      total: cpl(gadsPerf.total?.spendNzd, attributedMd.total.gads + attributedSd.total.gads),
+      total: cpl(gadsPerf.total?.spendNzd, clickAttribution.total.gads),
       byDepot: Object.fromEntries(ALL_DEPOTS.map(d =>
-        [d, cpl(gadsPerf.byDepot[d]?.spendNzd, attributedMd.byDepot[d].gads + attributedSd.byDepot[d].gads)])),
+        [d, cpl(gadsPerf.byDepot[d]?.spendNzd, clickAttribution.byDepot[d].gads)])),
     },
     metaLeadsResults: {
       total: metaPerf.total?.costPerResultNzd ?? null,

@@ -10,6 +10,9 @@ const config = require('../config');
 const { getOrFetch, buildKey, NAMESPACES, recordSync } = require('../cache');
 const meta = require('./meta');
 const googleAds = require('./googleAds');
+const hubspot = require('./hubspot');
+
+const { ALL_DEPOTS, normaliseRegions } = hubspot;
 
 const BASE = 'https://api.hubapi.com';
 const HEADERS = () => ({
@@ -80,11 +83,12 @@ async function searchContacts({ startDate, endDate }) {
 }
 
 /**
- * Batch-check which contact IDs have at least one associated deal.
+ * Batch-fetch each contact's first associated deal ID (if any).
  * Uses the v4 associations batch read API, chunked at 100 per request.
+ * Returns a Map<contactId, dealId>.
  */
-async function getContactIdsWithDeal(contactIds) {
-  const withDeal = new Set();
+async function getContactToDealMap(contactIds) {
+  const map = new Map();
   const chunkSize = 100;
 
   for (let i = 0; i < contactIds.length; i += chunkSize) {
@@ -95,10 +99,35 @@ async function getContactIdsWithDeal(contactIds) {
       { inputs: chunk.map(id => ({ id })) }
     );
     for (const r of (resp.data.results || [])) {
-      if (r.to && r.to.length > 0) withDeal.add(r.from.id);
+      // toObjectId comes back as a number from the v4 associations API, but
+      // the deals batch-read endpoint returns string IDs — normalise to
+      // string here so Map lookups in getDealDepotInfo actually match.
+      if (r.to && r.to.length > 0) map.set(r.from.id, String(r.to[0].toObjectId));
     }
   }
-  return withDeal;
+  return map;
+}
+
+/**
+ * Batch-fetch deal properties (location, hubspot_owner_id) for depot
+ * classification, chunked at 100 per request (HubSpot batch read limit).
+ */
+async function getDealDepotInfo(dealIds) {
+  const info = new Map();
+  const chunkSize = 100;
+
+  for (let i = 0; i < dealIds.length; i += chunkSize) {
+    const chunk = dealIds.slice(i, i + chunkSize);
+    if (chunk.length === 0) continue;
+    const resp = await _postWithRetry(
+      `${BASE}/crm/v3/objects/deals/batch/read`,
+      { inputs: chunk.map(id => ({ id })), properties: ['location', 'hubspot_owner_id'] }
+    );
+    for (const r of (resp.data.results || [])) {
+      info.set(r.id, { location: r.properties.location, ownerId: r.properties.hubspot_owner_id });
+    }
+  }
+  return info;
 }
 
 // ── Pearson correlation ───────────────────────────────────────────────────────
@@ -148,7 +177,7 @@ async function getAdAttribution({ startDate, endDate } = {}) {
     recordSync('hubspot');
 
     const contactIds = contacts.map(c => c.id);
-    const dealContactIds = await getContactIdsWithDeal(contactIds);
+    const contactToDeal = await getContactToDealMap(contactIds);
 
     // ── Stat cards ───────────────────────────────────────────────────────────
     let totalContacts = 0, totalDealContacts = 0, metaContacts = 0, googleContacts = 0;
@@ -158,7 +187,7 @@ async function getAdAttribution({ startDate, endDate } = {}) {
 
     for (const c of contacts) {
       totalContacts++;
-      const hasDeal = dealContactIds.has(c.id);
+      const hasDeal = contactToDeal.has(c.id);
       if (!hasDeal) continue;
       totalDealContacts++;
 
@@ -257,4 +286,52 @@ async function getAdAttribution({ startDate, endDate } = {}) {
   });
 }
 
-module.exports = { getAdAttribution };
+/**
+ * Click-ID-based Meta/Google attributed enquiry counts, bucketed by depot —
+ * the same hard signal (hs_facebook_click_id / hs_google_click_id) used for
+ * the Ad Attribution stat cards, instead of HubSpot's deal-level
+ * hs_analytics_source field (which undercounts — see marketingDashboard.js).
+ * Depot is classified from the associated deal's location/owner.
+ */
+async function getClickIdAttributionByDepot({ startDate, endDate } = {}) {
+  if (!startDate || !endDate) throw new Error('startDate and endDate are required');
+
+  const cacheKey = buildKey(NAMESPACES.HUBSPOT, 'clickIdAttributionByDepot', startDate, endDate);
+  return getOrFetch(cacheKey, async () => {
+    const contacts = await searchContacts({ startDate, endDate });
+    recordSync('hubspot');
+
+    const contactIds = contacts.map(c => c.id);
+    const contactToDeal = await getContactToDealMap(contactIds);
+
+    const dealIds = [...new Set(contactToDeal.values())];
+    const dealDepotInfo = await getDealDepotInfo(dealIds);
+
+    const emptyBucket = () => ({ meta: 0, gads: 0 });
+    const totals = emptyBucket();
+    const byDepot = {};
+    for (const d of ALL_DEPOTS) byDepot[d] = emptyBucket();
+
+    for (const c of contacts) {
+      const dealId = contactToDeal.get(c.id);
+      if (!dealId) continue;
+
+      const hasFb = !!c.properties.hs_facebook_click_id;
+      const hasGg = !!c.properties.hs_google_click_id;
+      if (!hasFb && !hasGg) continue;
+
+      const channel = hasFb ? 'meta' : 'gads';
+      totals[channel]++;
+
+      const dealInfo = dealDepotInfo.get(dealId);
+      const regions = dealInfo
+        ? normaliseRegions(dealInfo.location, dealInfo.ownerId).filter(r => ALL_DEPOTS.includes(r))
+        : [];
+      for (const r of regions) byDepot[r][channel]++;
+    }
+
+    return { total: totals, byDepot };
+  });
+}
+
+module.exports = { getAdAttribution, getClickIdAttributionByDepot };
