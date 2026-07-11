@@ -1,6 +1,19 @@
 import React from 'react';
 
-function Delta({ delta, deltaPercent, invertPositive = false }) {
+function formatDelta(delta, format) {
+  if (delta === null || delta === undefined) return '';
+  const abs = Math.abs(delta);
+  switch (format) {
+    case 'currency':
+      return `$${abs.toLocaleString('en-NZ', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    case 'percent':
+      return `${abs.toFixed(1)}%`;
+    default:
+      return abs.toLocaleString('en-NZ', { maximumFractionDigits: 0 });
+  }
+}
+
+function Delta({ delta, deltaPercent, invertPositive = false, format = 'number' }) {
   if (delta === null || delta === undefined) return null;
   const isPositive = delta > 0;
   const isGood = invertPositive ? !isPositive : isPositive;
@@ -9,7 +22,7 @@ function Delta({ delta, deltaPercent, invertPositive = false }) {
   const pct = deltaPercent !== null ? ` (${Math.abs(deltaPercent).toFixed(1)}%)` : '';
   return (
     <span className={`text-xs font-medium ${color}`}>
-      {arrow} {Math.abs(delta).toLocaleString()}{pct}
+      {arrow} {formatDelta(delta, format)}{pct}
     </span>
   );
 }
@@ -24,6 +37,7 @@ export default function KpiCard({
   loading = false,
   error = null,
   subtitle = null,
+  comparisonLabel = 'vs prior period',
 }) {
   function formatValue(v) {
     if (v === null || v === undefined) return '—';
@@ -59,8 +73,8 @@ export default function KpiCard({
           <p className="text-2xl font-semibold mt-1" style={{ color: '#3b3b3b' }}>{formatValue(value)}</p>
           {delta !== undefined && (
             <div className="mt-1">
-              <Delta delta={delta} deltaPercent={deltaPercent} invertPositive={invertPositive} />
-              <span className="text-xs text-gray-400 ml-1">vs prior period</span>
+              <Delta delta={delta} deltaPercent={deltaPercent} invertPositive={invertPositive} format={format} />
+              <span className="text-xs text-gray-400 ml-1">{comparisonLabel}</span>
             </div>
           )}
         </>

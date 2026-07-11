@@ -16,18 +16,17 @@ function parseDateRange(query) {
 }
 
 /**
- * Shift a date range back by the same number of days to get the prior period.
+ * Return the same calendar date range one year earlier (same time last year).
  */
-function priorPeriod(startDate, endDate) {
+function priorYear(startDate, endDate) {
   if (!startDate || !endDate) return { startDate: null, endDate: null };
-  const s = new Date(startDate);
-  const e = new Date(endDate);
-  const diffMs = e - s + 86400000; // inclusive
-  const priorEnd = new Date(s - 86400000);
-  const priorStart = new Date(priorEnd - diffMs + 86400000);
+  const s = new Date(startDate + 'T00:00:00Z');
+  const e = new Date(endDate + 'T00:00:00Z');
+  s.setUTCFullYear(s.getUTCFullYear() - 1);
+  e.setUTCFullYear(e.getUTCFullYear() - 1);
   return {
-    startDate: priorStart.toISOString().split('T')[0],
-    endDate: priorEnd.toISOString().split('T')[0],
+    startDate: s.toISOString().split('T')[0],
+    endDate: e.toISOString().split('T')[0],
   };
 }
 
@@ -36,7 +35,7 @@ function priorPeriod(startDate, endDate) {
 router.get('/', async (req, res, next) => {
   try {
     const params = parseDateRange(req.query);
-    const prior = priorPeriod(params.startDate, params.endDate);
+    const prior = priorYear(params.startDate, params.endDate);
 
     // Fetch current period — all sources in parallel, tolerate individual failures
     const [

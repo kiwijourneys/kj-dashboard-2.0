@@ -105,6 +105,15 @@ export default function SalesMarketing() {
 
   function kv(key) { return kpis?.[key]; }
 
+  const comparisonLabel = React.useMemo(() => {
+    const p = summaryQ.data?.priorPeriodParams;
+    if (!p?.startDate || !p?.endDate) return 'vs same time last year';
+    const fmt = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-NZ', {
+      day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
+    });
+    return `vs ${fmt(p.startDate)} – ${fmt(p.endDate)}`;
+  }, [summaryQ.data?.priorPeriodParams]);
+
   // Leads over time
   const leadsChartData = React.useMemo(() => {
     const byDate = {};
@@ -351,10 +360,10 @@ export default function SalesMarketing() {
           const sdRev = ((sdClosedQ.data?.totalRevenue || 0) + (rezdyQ.data?.revenueNzd || 0)) || null;
           return (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <KpiCard label="Total Ad Spend"       value={kv('totalAdSpendNzd')?.current}  delta={kv('totalAdSpendNzd')?.delta}  deltaPercent={kv('totalAdSpendNzd')?.deltaPercent}  format="currency" invertPositive loading={summaryQ.isLoading} subtitle="Google + Meta" />
-              <KpiCard label="Total Enquiries"          value={kv('totalLeads')?.current}       delta={kv('totalLeads')?.delta}       deltaPercent={kv('totalLeads')?.deltaPercent}       format="number"   loading={summaryQ.isLoading} subtitle="HubSpot MD + SD enquiries" />
-              <KpiCard label="Bookings Confirmed"   value={kv('totalClosedWon')?.current}   delta={kv('totalClosedWon')?.delta}   deltaPercent={kv('totalClosedWon')?.deltaPercent}   format="number"   loading={summaryQ.isLoading} subtitle="HubSpot · by confirmed date" />
-              <KpiCard label="$/Enquiry"            value={kv('cpl')?.current}              delta={kv('cpl')?.delta}              deltaPercent={kv('cpl')?.deltaPercent}              format="currency" invertPositive loading={summaryQ.isLoading} subtitle="Ad spend ÷ total enquiries" />
+              <KpiCard label="Total Ad Spend"       value={kv('totalAdSpendNzd')?.current}  delta={kv('totalAdSpendNzd')?.delta}  deltaPercent={kv('totalAdSpendNzd')?.deltaPercent}  format="currency" invertPositive loading={summaryQ.isLoading} subtitle="Google + Meta"                   comparisonLabel={comparisonLabel} />
+              <KpiCard label="Total Enquiries"      value={kv('totalLeads')?.current}       delta={kv('totalLeads')?.delta}       deltaPercent={kv('totalLeads')?.deltaPercent}       format="number"   loading={summaryQ.isLoading} subtitle="HubSpot MD + SD enquiries"       comparisonLabel={comparisonLabel} />
+              <KpiCard label="Bookings Confirmed"   value={kv('totalClosedWon')?.current}   delta={kv('totalClosedWon')?.delta}   deltaPercent={kv('totalClosedWon')?.deltaPercent}   format="number"   loading={summaryQ.isLoading} subtitle="HubSpot · by confirmed date"     comparisonLabel={comparisonLabel} />
+              <KpiCard label="$/Enquiry"            value={kv('cpl')?.current}              delta={kv('cpl')?.delta}              deltaPercent={kv('cpl')?.deltaPercent}              format="currency" invertPositive loading={summaryQ.isLoading} subtitle="Ad spend ÷ total enquiries"  comparisonLabel={comparisonLabel} />
               <KpiCard label="Rezdy Bookings"       value={rezdyQ.data?.total}              format="number"   loading={rezdyQ.isLoading}    subtitle="GA4 purchase events" />
               <KpiCard label="MD Revenue Confirmed" value={mdClosedQ.data?.totalRevenue}    format="currency" loading={mdClosedQ.isLoading}  subtitle="HubSpot ops pipeline · by close date" />
               <KpiCard label="Single Day Revenue"   value={sdRev}                           format="currency" loading={sdClosedQ.isLoading || rezdyQ.isLoading} subtitle="HubSpot SD confirmed + Rezdy" />
