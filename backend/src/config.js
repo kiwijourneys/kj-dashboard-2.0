@@ -65,7 +65,7 @@ const config = {
     appSecret: process.env.META_APP_SECRET,
     accessToken: process.env.META_ACCESS_TOKEN,
     adAccountId: process.env.META_AD_ACCOUNT_ID,
-    apiVersion: 'v19.0',
+    apiVersion: process.env.META_API_VERSION || 'v22.0',
   },
 
   slack: {
