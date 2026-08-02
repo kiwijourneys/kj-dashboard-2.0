@@ -56,6 +56,7 @@ app.use((err, req, res, _next) => {
   }
   res.status(status).json({
     error: message,
+    ...(err.response?.data && { upstreamError: err.response.data }),
     ...(config.nodeEnv !== 'production' && { stack: err.stack }),
   });
 });
