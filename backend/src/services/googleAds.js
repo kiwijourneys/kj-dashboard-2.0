@@ -52,7 +52,7 @@ async function getAccessToken() {
 
 // ── REST helper ───────────────────────────────────────────────────────────────
 
-const GADS_VERSION = 'v21';
+const GADS_VERSION = process.env.GADS_VERSION || 'v23';
 const GADS_BASE = `https://googleads.googleapis.com/${GADS_VERSION}`;
 
 /**
