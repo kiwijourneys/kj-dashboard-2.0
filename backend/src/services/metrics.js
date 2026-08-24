@@ -54,6 +54,8 @@ function computeSummaryKpis({
   return {
     totalAdSpendNzd: spend,
     totalLeads: leads,
+    mdLeads: multiDayLeadsCount || 0,
+    sdLeads: singleDayLeadsCount || 0,
     totalClosedWon: closedWon,
     totalRevenueNzd: revenue,
     cpl: cpl(spend, leads),

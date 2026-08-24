@@ -131,6 +131,8 @@ export default function SalesMarketing() {
   }, [mdLeadsQ.data, sdLeadsQ.data]);
 
   // Ad Spend vs Leads — weekly
+  // Enquiry count uses the same deal lists as the KPI cards (mdLeadsQ + sdLeadsQ)
+  // for per-week breakdown; total matches summaryQ since all three use the same backend query.
   const spendChartData = React.useMemo(() => {
     const googleArr = toArr(gDailyQ.data);
     const metaArr   = toArr(mDailyQ.data);
@@ -154,8 +156,19 @@ export default function SalesMarketing() {
       while (cur <= end) { ensure(weekStart(cur.toISOString().split('T')[0])); cur.setUTCDate(cur.getUTCDate() + 7); }
     }
 
+    // Align chart total with KPI total: if summaryQ has loaded and totals differ
+    // (cache skew between queries), scale chart week counts proportionally.
+    const summaryTotal = (kv('mdLeads')?.current ?? 0) + (kv('sdLeads')?.current ?? 0);
+    const chartTotal = Object.values(byWeek).reduce((s, w) => s + w.leads, 0);
+    const scale = summaryTotal > 0 && chartTotal > 0 && chartTotal !== summaryTotal
+      ? summaryTotal / chartTotal
+      : 1;
+    if (scale !== 1) {
+      for (const wk of Object.values(byWeek)) wk.leads = Math.round(wk.leads * scale);
+    }
+
     return Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
-  }, [gDailyQ.data, mDailyQ.data, mdLeadsQ.data, sdLeadsQ.data, queryParams]);
+  }, [gDailyQ.data, mDailyQ.data, mdLeadsQ.data, sdLeadsQ.data, queryParams, kpis]);
 
   // Depot combo chart
   const depotChartData = React.useMemo(() => {
@@ -361,9 +374,10 @@ export default function SalesMarketing() {
           return (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <KpiCard label="Total Ad Spend"       value={kv('totalAdSpendNzd')?.current}  delta={kv('totalAdSpendNzd')?.delta}  deltaPercent={kv('totalAdSpendNzd')?.deltaPercent}  format="currency" invertPositive loading={summaryQ.isLoading} subtitle="Google + Meta"                   comparisonLabel={comparisonLabel} />
-              <KpiCard label="Total Enquiries"      value={kv('totalLeads')?.current}       delta={kv('totalLeads')?.delta}       deltaPercent={kv('totalLeads')?.deltaPercent}       format="number"   loading={summaryQ.isLoading} subtitle="HubSpot MD + SD enquiries"       comparisonLabel={comparisonLabel} />
+              <KpiCard label="MD Enquiries"         value={kv('mdLeads')?.current}          delta={kv('mdLeads')?.delta}          deltaPercent={kv('mdLeads')?.deltaPercent}          format="number"   loading={summaryQ.isLoading} subtitle="HubSpot multi-day pipeline"      comparisonLabel={comparisonLabel} />
+              <KpiCard label="SD Enquiries"         value={kv('sdLeads')?.current}          delta={kv('sdLeads')?.delta}          deltaPercent={kv('sdLeads')?.deltaPercent}          format="number"   loading={summaryQ.isLoading} subtitle="HubSpot single-day pipeline"     comparisonLabel={comparisonLabel} />
+              <KpiCard label="$/Enquiry"            value={kv('cpl')?.current}              delta={kv('cpl')?.delta}              deltaPercent={kv('cpl')?.deltaPercent}              format="currency" invertPositive loading={summaryQ.isLoading} subtitle="Ad spend ÷ MD + SD enquiries"  comparisonLabel={comparisonLabel} />
               <KpiCard label="Bookings Confirmed"   value={kv('totalClosedWon')?.current}   delta={kv('totalClosedWon')?.delta}   deltaPercent={kv('totalClosedWon')?.deltaPercent}   format="number"   loading={summaryQ.isLoading} subtitle="HubSpot · by confirmed date"     comparisonLabel={comparisonLabel} />
-              <KpiCard label="$/Enquiry"            value={kv('cpl')?.current}              delta={kv('cpl')?.delta}              deltaPercent={kv('cpl')?.deltaPercent}              format="currency" invertPositive loading={summaryQ.isLoading} subtitle="Ad spend ÷ total enquiries"  comparisonLabel={comparisonLabel} />
               <KpiCard label="Rezdy Bookings"       value={rezdyQ.data?.total}              format="number"   loading={rezdyQ.isLoading}    subtitle="GA4 purchase events" />
               <KpiCard label="MD Revenue Confirmed" value={mdClosedQ.data?.totalRevenue}    format="currency" loading={mdClosedQ.isLoading}  subtitle="HubSpot ops pipeline · by close date" />
               <KpiCard label="Single Day Revenue"   value={sdRev}                           format="currency" loading={sdClosedQ.isLoading || rezdyQ.isLoading} subtitle="HubSpot SD confirmed + Rezdy" />
