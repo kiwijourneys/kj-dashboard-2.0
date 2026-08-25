@@ -213,7 +213,7 @@ async function getMultiDayLeads({ startDate, endDate, region } = {}) {
     const filters = [
       { propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.multiDaySalesPipelineId },
       ...(startDate ? [{ propertyName: 'createdate', operator: 'GTE', value: toMs(startDate).toString() }] : []),
-      ...(endDate   ? [{ propertyName: 'createdate', operator: 'LTE', value: toMs(endDate).toString() }]   : []),
+      ...(endDate   ? [{ propertyName: 'createdate', operator: 'LTE', value: (toMs(endDate) + 86_399_999).toString() }] : []),
     ];
 
     const deals = await searchDeals(filters);
@@ -337,7 +337,7 @@ async function getSingleDayLeads({ startDate, endDate, region } = {}) {
     const filters = [
       { propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.singleDayPipelineId },
       ...(startDate ? [{ propertyName: 'createdate', operator: 'GTE', value: toMs(startDate).toString() }] : []),
-      ...(endDate   ? [{ propertyName: 'createdate', operator: 'LTE', value: toMs(endDate).toString() }]   : []),
+      ...(endDate   ? [{ propertyName: 'createdate', operator: 'LTE', value: (toMs(endDate) + 86_399_999).toString() }] : []),
     ];
 
     const deals = await searchDeals(filters);
