@@ -349,6 +349,38 @@ export default function SalesMarketing() {
     return Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
   }, [ga4SessionsByWeek, mdLeadsQ.data, sdLeadsQ.data]);
 
+  // $/MD Enquiry by week + 4-week rolling average
+  const cplMdByWeek = React.useMemo(() => {
+    const byWeek = {};
+    const ensure = wk => { if (!byWeek[wk]) byWeek[wk] = { date: wk, spend: 0, mdLeads: 0 }; };
+
+    for (const r of toArr(gDailyQ.data)) { const wk = weekStart(r.date); ensure(wk); byWeek[wk].spend += r.spendNzd || 0; }
+    for (const r of toArr(mDailyQ.data)) { const wk = weekStart(r.date); ensure(wk); byWeek[wk].spend += r.spendNzd || 0; }
+    for (const d of mdLeadsQ.data?.deals || []) {
+      const date = d.createdate?.split('T')[0];
+      if (!date) continue;
+      const wk = weekStart(date);
+      ensure(wk);
+      byWeek[wk].mdLeads++;
+    }
+
+    const rows = Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
+
+    for (const row of rows) {
+      row.cpl = row.mdLeads > 0 ? row.spend / row.mdLeads : null;
+    }
+
+    // 4-week rolling average: total spend ÷ total MD leads over the window
+    for (let i = 0; i < rows.length; i++) {
+      const window = rows.slice(Math.max(0, i - 3), i + 1);
+      const totalSpend = window.reduce((s, r) => s + r.spend, 0);
+      const totalLeads = window.reduce((s, r) => s + r.mdLeads, 0);
+      rows[i].rolling4 = totalLeads > 0 ? totalSpend / totalLeads : null;
+    }
+
+    return rows;
+  }, [gDailyQ.data, mDailyQ.data, mdLeadsQ.data]);
+
   const mp = marketingPerfQ.data;
   const mpLoading = marketingPerfQ.isLoading || !mp;
 
@@ -487,6 +519,30 @@ export default function SalesMarketing() {
                 <Legend wrapperStyle={{ fontSize: 12, color: '#6b7280' }} />
                 <Bar yAxisId="right" dataKey="enquiries" name="Enquiries" fill="#a78bfa" opacity={0.8} radius={[3,3,0,0]} />
                 <Line yAxisId="left" type="monotone" dataKey="sessions" name="Web Visits" stroke="#22d3ee" dot={false} strokeWidth={2} connectNulls />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* $/MD Enquiry by week */}
+        <div className="card">
+          <h3 className="text-sm font-medium text-gray-600 mb-4">$/MD Enquiry · weekly (4-week rolling avg)</h3>
+          {cplMdByWeek.length === 0 ? (
+            <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={200}>
+              <ComposedChart data={cplMdByWeek}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fill: '#6b7280', fontSize: 11 }} />
+                <YAxis tickFormatter={v => `$${Math.round(v)}`} tick={{ fill: '#6b7280', fontSize: 11 }} />
+                <Tooltip
+                  labelFormatter={fmtDate}
+                  formatter={(v, name) => v !== null && v !== undefined ? [fmtCurrency(v, 0), name] : ['—', name]}
+                  contentStyle={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
+                />
+                <Legend wrapperStyle={{ fontSize: 12, color: '#6b7280' }} />
+                <Bar dataKey="cpl" name="$/MD Enquiry" fill={COLORS.multiDay} opacity={0.85} radius={[3,3,0,0]} />
+                <Line type="monotone" dataKey="rolling4" name="4-week avg" stroke={COLORS.rezdy} dot={false} strokeWidth={2} connectNulls />
               </ComposedChart>
             </ResponsiveContainer>
           )}
