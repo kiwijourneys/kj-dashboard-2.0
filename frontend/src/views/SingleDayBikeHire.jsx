@@ -157,28 +157,18 @@ export default function SingleDayBikeHire() {
   const costPerConversion = sdTaggedSpend !== null && sdConversionsForCpc > 0
     ? sdTaggedSpend / sdConversionsForCpc : null;
 
-  // ── Rolling 14-day enquiry → conversion rate (HubSpot SD) ───────────────────
-  const rolling14Rate = React.useMemo(() => {
-    const endDate = queryParams.endDate
-      ? new Date(queryParams.endDate + 'T12:00:00Z')
-      : new Date();
-    const cutoff = new Date(endDate);
-    cutoff.setUTCDate(cutoff.getUTCDate() - 14);
+  // ── Enquiry → conversion rate (deal-ID matched, period-wide) ────────────────
+  // Same HubSpot deal moves enquiry → closed, so matching by ID is exact.
+  const conversionRate = React.useMemo(() => {
+    const enquiries = sdLeadsQ.data?.deals || [];
+    const closedIds = new Set((sdClosedQ.data?.deals || []).map(d => d.id));
+    if (!enquiries.length) return null;
+    const converted = enquiries.filter(d => closedIds.has(d.id)).length;
+    return { rate: (converted / enquiries.length) * 100, converted, total: enquiries.length };
+  }, [sdLeadsQ.data, sdClosedQ.data]);
 
-    const leads14 = (sdLeadsQ.data?.deals || []).filter(d => {
-      const dt = d.createdate ? new Date(d.createdate) : null;
-      return dt && dt >= cutoff && dt <= endDate;
-    }).length;
-
-    const closed14 = (sdClosedQ.data?.deals || []).filter(d => {
-      const raw = d.closedate || d.createdate;
-      const dt = raw ? new Date(raw) : null;
-      return dt && dt >= cutoff && dt <= endDate;
-    }).length;
-
-    if (leads14 === 0) return null;
-    return { rate: (closed14 / leads14) * 100, leads14, closed14 };
-  }, [sdLeadsQ.data, sdClosedQ.data, queryParams.endDate]);
+  // ── 4-week rolling CVR (computed after weeklyChartData is available) ─────────
+  // Defined below weeklyChartData — derived from it via useMemo.
 
   // ── Weekly ALL spend chart data (top chart) ──────────────────────────────────
   const weeklyChartData = React.useMemo(() => {
@@ -218,6 +208,19 @@ export default function SingleDayBikeHire() {
 
     return Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
   }, [gDailyQ.data, mDailyQ.data, sdLeadsQ.data, sdClosedQ.data, rezdyQ.data, depot]);
+
+  // ── 4-week rolling CVR — add as extra field on weeklyChartData rows ──────────
+  const weeklyChartDataWithCvr = React.useMemo(() => {
+    return weeklyChartData.map((row, i) => {
+      const window = weeklyChartData.slice(Math.max(0, i - 3), i + 1);
+      const totalEnq  = window.reduce((s, r) => s + (r.sdEnquiries  || 0), 0);
+      const totalConv = window.reduce((s, r) => s + (r.hsConversions || 0), 0);
+      return {
+        ...row,
+        cvr: totalEnq > 0 ? (totalConv / totalEnq) * 100 : null,
+      };
+    });
+  }, [weeklyChartData]);
 
   // ── Weekly SD-tagged spend chart data (bottom chart) ─────────────────────────
   const weeklyTrendData = React.useMemo(() => {
@@ -333,12 +336,12 @@ export default function SingleDayBikeHire() {
             />
             <KpiCard
               label="Enquiry Conversion Rate"
-              value={rolling14Rate?.rate ?? null}
+              value={conversionRate?.rate ?? null}
               format="percent"
               loading={sdLeadsQ.isLoading || sdClosedQ.isLoading}
-              subtitle={rolling14Rate
-                ? `Last 14 days · ${rolling14Rate.closed14} converted of ${rolling14Rate.leads14} enquiries`
-                : 'Rolling 14-day · HubSpot enquiry → Closed Won'}
+              subtitle={conversionRate
+                ? `${conversionRate.converted} converted of ${conversionRate.total} enquiries · period`
+                : 'HubSpot SD enquiry → Booking Admin Complete / Complete'}
             />
           </div>
         )}
@@ -361,28 +364,35 @@ export default function SingleDayBikeHire() {
             <p className="text-xs text-gray-400 mt-0.5">Click legend to show/hide series</p>
           </div>
         </div>
-        {weeklyChartData.length === 0 ? (
+        {weeklyChartDataWithCvr.length === 0 ? (
           <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>
         ) : (
-          <ResponsiveContainer width="100%" height={240}>
-            <ComposedChart data={weeklyChartData}>
+          <ResponsiveContainer width="100%" height={260}>
+            <ComposedChart data={weeklyChartDataWithCvr}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fill: '#6b7280', fontSize: 11 }} />
               <YAxis yAxisId="left"
                 tickFormatter={v => v >= 1000 ? `$${(v/1000).toFixed(1)}k` : `$${v.toFixed(0)}`}
                 tick={{ fill: '#6b7280', fontSize: 11 }} width={52} />
-              <YAxis yAxisId="right" orientation="right" tick={{ fill: '#6b7280', fontSize: 11 }} allowDecimals={false} width={32} />
+              <YAxis yAxisId="count" orientation="right" tick={{ fill: '#6b7280', fontSize: 11 }} allowDecimals={false} width={32} />
+              <YAxis yAxisId="cvr" orientation="right" tickFormatter={v => `${v.toFixed(0)}%`}
+                tick={{ fill: '#64748b', fontSize: 10 }} width={38} hide />
               <Tooltip
                 labelFormatter={fmtDate}
-                formatter={(v, name) => ['Google Ads','Meta Ads'].includes(name) ? [fmtNzd(v), name] : [v, name]}
+                formatter={(v, name) => {
+                  if (['Google Ads','Meta Ads'].includes(name)) return [fmtNzd(v), name];
+                  if (name === '4-wk CVR') return [`${Number(v).toFixed(1)}%`, name];
+                  return [v, name];
+                }}
                 contentStyle={TOOLTIP_STYLE}
               />
               <Legend wrapperStyle={LEGEND_STYLE} onClick={makeLegendToggle(setHiddenTop)} />
-              <Bar yAxisId="left" dataKey="google"       name="Google Ads"     fill={COLORS.google}       stackId="spend" hide={hiddenTop.has('google')} />
-              <Bar yAxisId="left" dataKey="meta"         name="Meta Ads"       fill={COLORS.meta}         stackId="spend" hide={hiddenTop.has('meta')} />
-              <Line yAxisId="right" type="monotone" dataKey="sdEnquiries"  name="SD Enquiries"   stroke={COLORS.enquiry}      dot={false} strokeWidth={2} hide={hiddenTop.has('sdEnquiries')} />
-              <Line yAxisId="right" type="monotone" dataKey="hsConversions" name="HS Conversions" stroke={COLORS.hsConversion} dot={false} strokeWidth={2} hide={hiddenTop.has('hsConversions')} />
-              <Line yAxisId="right" type="monotone" dataKey="rezdy"        name="Rezdy"          stroke={COLORS.rezdy}        dot={false} strokeWidth={2} connectNulls hide={hiddenTop.has('rezdy')} />
+              <Bar yAxisId="left"  dataKey="google"        name="Google Ads"    fill={COLORS.google}       stackId="spend" hide={hiddenTop.has('google')} />
+              <Bar yAxisId="left"  dataKey="meta"          name="Meta Ads"      fill={COLORS.meta}         stackId="spend" hide={hiddenTop.has('meta')} />
+              <Line yAxisId="count" type="monotone" dataKey="sdEnquiries"   name="SD Enquiries"  stroke={COLORS.enquiry}      dot={false} strokeWidth={2} hide={hiddenTop.has('sdEnquiries')} />
+              <Line yAxisId="count" type="monotone" dataKey="hsConversions" name="HS Conversions" stroke={COLORS.hsConversion} dot={false} strokeWidth={2} hide={hiddenTop.has('hsConversions')} />
+              <Line yAxisId="count" type="monotone" dataKey="rezdy"         name="Rezdy"         stroke={COLORS.rezdy}        dot={false} strokeWidth={2} connectNulls hide={hiddenTop.has('rezdy')} />
+              <Line yAxisId="cvr"  type="monotone"  dataKey="cvr"           name="4-wk CVR"      stroke="#64748b" dot={false} strokeWidth={2} strokeDasharray="5 3" connectNulls hide={hiddenTop.has('cvr')} />
             </ComposedChart>
           </ResponsiveContainer>
         )}
