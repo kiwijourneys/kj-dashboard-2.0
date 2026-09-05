@@ -3,8 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { useFilters } from '../context/FilterContext';
 import {
   fetchSummary, fetchSdLeads, fetchSdClosed,
-  fetchGa4RezdyRev, fetchGa4BikeRental,
+  fetchGa4RezdyRev, fetchGa4BikeRental, fetchGa4RezdyProducts,
   fetchGoogleTourTypeDaily, fetchMetaTourTypeDaily,
+  fetchGoogleDepotDaily, fetchMetaDepotDaily,
   fetchXeroPnl, fetchMarketingPerformance,
 } from '../api';
 import KpiCard from '../components/KpiCard';
@@ -17,10 +18,11 @@ import {
 import { format, parseISO } from 'date-fns';
 
 const COLORS = {
-  google:  '#ea4335',
-  meta:    '#1877f2',
-  enquiry: '#a78bfa',
-  rezdy:   '#22c55e',
+  google:       '#ea4335',
+  meta:         '#1877f2',
+  enquiry:      '#a78bfa',
+  rezdy:        '#22c55e',
+  hsConversion: '#f59e0b',
 };
 
 const DEPOTS = ['Nelson', 'West Coast', 'Central Otago', 'Kawarau Gorge'];
@@ -65,6 +67,7 @@ function bucketByDepot(deals) {
 
 export default function SingleDayBikeHire() {
   const { queryParams } = useFilters();
+  const [trendDepot, setTrendDepot] = React.useState('All');
 
   const summaryQ      = useQuery({ queryKey: ['summary',       queryParams], queryFn: () => fetchSummary(queryParams) });
   const sdLeadsQ      = useQuery({ queryKey: ['sdLeads',       queryParams], queryFn: () => fetchSdLeads(queryParams) });
@@ -72,8 +75,11 @@ export default function SingleDayBikeHire() {
   const rezdyQ        = useQuery({ queryKey: ['rezdyRev',      queryParams], queryFn: () => fetchGa4RezdyRev(queryParams) });
   const gTourTypeQ    = useQuery({ queryKey: ['googleTourTypeDaily', queryParams], queryFn: () => fetchGoogleTourTypeDaily(queryParams) });
   const mTourTypeQ    = useQuery({ queryKey: ['metaTourTypeDaily',  queryParams], queryFn: () => fetchMetaTourTypeDaily(queryParams) });
+  const gDepotDailyQ  = useQuery({ queryKey: ['depotDailySpend',    queryParams], queryFn: () => fetchGoogleDepotDaily(queryParams) });
+  const mDepotDailyQ  = useQuery({ queryKey: ['metaDepotDailySpend', queryParams], queryFn: () => fetchMetaDepotDaily(queryParams) });
   const xeroPnlQ      = useQuery({ queryKey: ['xeroPnl',       queryParams], queryFn: () => fetchXeroPnl(queryParams), retry: 1 });
   const brmQ          = useQuery({ queryKey: ['brmConv',       queryParams], queryFn: () => fetchGa4BikeRental(queryParams) });
+  const rezdyProductsQ = useQuery({ queryKey: ['rezdyProducts', queryParams], queryFn: () => fetchGa4RezdyProducts(queryParams) });
   const marketingPerfQ = useQuery({
     queryKey: ['marketingPerformance', queryParams.startDate, queryParams.endDate],
     queryFn: () => fetchMarketingPerformance({ startDate: queryParams.startDate, endDate: queryParams.endDate }),
@@ -149,6 +155,56 @@ export default function SingleDayBikeHire() {
 
     return Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
   }, [gTourTypeQ.data, mTourTypeQ.data, sdLeadsQ.data, rezdyQ.data]);
+
+  // ── Weekly trend (depot-filterable) ──────────────────────────────────────────
+  const weeklyTrendData = React.useMemo(() => {
+    const byWeek = {};
+    const ensure = wk => {
+      if (!byWeek[wk]) byWeek[wk] = { date: wk, google: 0, meta: 0, enquiries: 0, hsConversions: 0, rezdy: 0 };
+    };
+
+    // Spend — SD-tagged for All; depot total for a specific depot
+    if (trendDepot === 'All') {
+      for (const r of (Array.isArray(gTourTypeQ.data) ? gTourTypeQ.data : [])) {
+        const wk = weekStart(r.date); ensure(wk); byWeek[wk].google += r.SD || 0;
+      }
+      for (const r of (Array.isArray(mTourTypeQ.data) ? mTourTypeQ.data : [])) {
+        const wk = weekStart(r.date); ensure(wk); byWeek[wk].meta += r.SD || 0;
+      }
+    } else {
+      for (const r of (Array.isArray(gDepotDailyQ.data) ? gDepotDailyQ.data : [])) {
+        const wk = weekStart(r.date); ensure(wk); byWeek[wk].google += r[trendDepot] || 0;
+      }
+      for (const r of (Array.isArray(mDepotDailyQ.data) ? mDepotDailyQ.data : [])) {
+        const wk = weekStart(r.date); ensure(wk); byWeek[wk].meta += r[trendDepot] || 0;
+      }
+    }
+
+    // SD enquiries — filter by depot via .regions
+    for (const d of sdLeadsQ.data?.deals || []) {
+      if (trendDepot !== 'All' && !d.regions?.includes(trendDepot)) continue;
+      const date = d.createdate?.split('T')[0];
+      if (!date) continue;
+      const wk = weekStart(date); ensure(wk); byWeek[wk].enquiries++;
+    }
+
+    // SD HubSpot conversions — filter by depot via .regions
+    for (const d of sdClosedQ.data?.deals || []) {
+      if (trendDepot !== 'All' && !d.regions?.includes(trendDepot)) continue;
+      const date = (d.closedate || d.createdate)?.split('T')[0];
+      if (!date) continue;
+      const wk = weekStart(date); ensure(wk); byWeek[wk].hsConversions++;
+    }
+
+    // Rezdy — always total (no depot attribution available)
+    if (trendDepot === 'All') {
+      for (const r of rezdyQ.data?.daily || []) {
+        const wk = weekStart(r.date); ensure(wk); byWeek[wk].rezdy += r.conversions || 0;
+      }
+    }
+
+    return Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
+  }, [gTourTypeQ.data, mTourTypeQ.data, gDepotDailyQ.data, mDepotDailyQ.data, sdLeadsQ.data, sdClosedQ.data, rezdyQ.data, trendDepot]);
 
   const depotLoading = sdLeadsQ.isLoading || sdClosedQ.isLoading || marketingPerfQ.isLoading;
 
@@ -294,6 +350,114 @@ export default function SingleDayBikeHire() {
           )}
         </div>
       </div>
+
+      {/* ── Weekly trend + top Rezdy tours ─────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+      {/* Weekly trend chart (depot-filterable) — spans 2 cols */}
+      <div className="card lg:col-span-2">
+        {/* Header + depot picker */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-sm font-medium text-gray-600">
+              SD Performance Over Time (weekly)
+            </h3>
+            {trendDepot !== 'All' && (
+              <p className="text-xs text-gray-400 mt-0.5">
+                Spend = all {trendDepot} spend · Rezdy hidden (no depot data)
+              </p>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {['All', ...DEPOTS].map(d => (
+              <button
+                key={d}
+                onClick={() => setTrendDepot(d)}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                  trendDepot === d
+                    ? 'text-white'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                }`}
+                style={trendDepot === d ? { backgroundColor: '#99ca3c' } : {}}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {weeklyTrendData.length === 0 ? (
+          <div className="h-56 flex items-center justify-center text-gray-400 text-sm">No data</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={240}>
+            <ComposedChart data={weeklyTrendData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fill: '#6b7280', fontSize: 11 }} />
+              <YAxis yAxisId="spend"
+                tickFormatter={v => v >= 1000 ? `$${(v/1000).toFixed(1)}k` : `$${v.toFixed(0)}`}
+                tick={{ fill: '#6b7280', fontSize: 11 }}
+                width={52}
+              />
+              <YAxis yAxisId="count" orientation="right" tick={{ fill: '#6b7280', fontSize: 11 }} allowDecimals={false} width={32} />
+              <Tooltip
+                labelFormatter={fmtDate}
+                formatter={(v, name) =>
+                  name === 'Google Ads' || name === 'Meta Ads'
+                    ? [fmtNzd(v), name]
+                    : [v, name]
+                }
+                contentStyle={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
+              />
+              <Legend wrapperStyle={{ fontSize: 12, color: '#6b7280' }} />
+              <Bar yAxisId="spend" dataKey="google"       name="Google Ads"      fill={COLORS.google}       stackId="spend" />
+              <Bar yAxisId="spend" dataKey="meta"         name="Meta Ads"        fill={COLORS.meta}         stackId="spend" />
+              <Line yAxisId="count" type="monotone" dataKey="enquiries"     name="SD Enquiries"    stroke={COLORS.enquiry}      dot={false} strokeWidth={2} />
+              <Line yAxisId="count" type="monotone" dataKey="hsConversions" name="HS Conversions"  stroke={COLORS.hsConversion} dot={false} strokeWidth={2} />
+              {trendDepot === 'All' && (
+                <Line yAxisId="count" type="monotone" dataKey="rezdy" name="Rezdy" stroke={COLORS.rezdy} dot={false} strokeWidth={2} connectNulls />
+              )}
+            </ComposedChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* Top Rezdy tours by conversions */}
+      <div className="card">
+        <h3 className="text-sm font-medium text-gray-600 mb-4">Top Rezdy Tours</h3>
+        {rezdyProductsQ.isLoading ? (
+          <div className="h-48 flex items-center justify-center text-gray-400 text-sm">Loading…</div>
+        ) : !rezdyProductsQ.data?.products?.length ? (
+          <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>
+        ) : (
+          <ol className="space-y-2">
+            {rezdyProductsQ.data.products.slice(0, 12).map((p, i) => (
+              <li key={p.name} className="flex items-start gap-2 text-sm">
+                <span className="text-xs font-bold text-gray-300 w-5 shrink-0 pt-0.5">{i + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-gray-700 truncate text-xs leading-tight">{p.name}</span>
+                    <span className="shrink-0 font-semibold text-gray-800 text-xs">{p.quantity}</span>
+                  </div>
+                  <div className="mt-0.5 h-1 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-1 rounded-full"
+                      style={{
+                        width: `${Math.round((p.quantity / rezdyProductsQ.data.products[0].quantity) * 100)}%`,
+                        backgroundColor: '#99ca3c',
+                      }}
+                    />
+                  </div>
+                </div>
+              </li>
+            ))}
+            <li className="text-xs text-gray-400 pt-1 border-t border-gray-50">
+              Total: {rezdyProductsQ.data.totalQuantity} bookings · {fmtNzd(rezdyProductsQ.data.totalRevenue)}
+            </li>
+          </ol>
+        )}
+      </div>
+
+      </div>{/* end trend+tours grid */}
 
       {/* ── Revenue breakdown ───────────────────────────────────────────────── */}
       <div>
