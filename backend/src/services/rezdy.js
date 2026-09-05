@@ -10,9 +10,9 @@ const BASE = 'https://api.rezdy.com/v1';
 const API_KEY = config.rezdy?.apiKey || process.env.REZDY_API_KEY;
 const PAGE_SIZE = 100;
 
-// Fetch one page of orders from Rezdy
+// Fetch one page of bookings from Rezdy
 async function fetchOrdersPage(startDate, endDate, offset = 0) {
-  const r = await axios.get(`${BASE}/orders`, {
+  const r = await axios.get(`${BASE}/bookings`, {
     params: {
       apiKey: API_KEY,
       startDate,
@@ -25,9 +25,9 @@ async function fetchOrdersPage(startDate, endDate, offset = 0) {
   });
   const body = r.data;
   if (body?.requestStatus?.success === false) {
-    throw new Error(`Rezdy orders: ${body.requestStatus.error?.errorMessage}`);
+    throw new Error(`Rezdy bookings: ${body.requestStatus.error?.errorMessage}`);
   }
-  return body.orders || [];
+  return body.bookings || [];
 }
 
 // Fetch ALL confirmed orders in the date range (handles pagination)
