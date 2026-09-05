@@ -5,7 +5,7 @@ import {
   fetchSummary, fetchSdLeads, fetchSdClosed,
   fetchGa4RezdyRev, fetchGa4BikeRental, fetchGa4RezdyProducts,
   fetchGoogleTourTypeDaily, fetchMetaTourTypeDaily,
-  fetchGoogleDepotDaily, fetchMetaDepotDaily,
+  fetchGoogleDaily, fetchMetaDaily,
   fetchXeroPnl, fetchMarketingPerformance,
 } from '../api';
 import KpiCard from '../components/KpiCard';
@@ -68,6 +68,7 @@ function bucketByDepot(deals) {
 export default function SingleDayBikeHire() {
   const { queryParams } = useFilters();
   const [trendDepot, setTrendDepot] = React.useState('All');
+  const [spendMode,  setSpendMode]  = React.useState('sd'); // 'sd' | 'all'
 
   const summaryQ      = useQuery({ queryKey: ['summary',       queryParams], queryFn: () => fetchSummary(queryParams) });
   const sdLeadsQ      = useQuery({ queryKey: ['sdLeads',       queryParams], queryFn: () => fetchSdLeads(queryParams) });
@@ -75,8 +76,8 @@ export default function SingleDayBikeHire() {
   const rezdyQ        = useQuery({ queryKey: ['rezdyRev',      queryParams], queryFn: () => fetchGa4RezdyRev(queryParams) });
   const gTourTypeQ    = useQuery({ queryKey: ['googleTourTypeDaily', queryParams], queryFn: () => fetchGoogleTourTypeDaily(queryParams) });
   const mTourTypeQ    = useQuery({ queryKey: ['metaTourTypeDaily',  queryParams], queryFn: () => fetchMetaTourTypeDaily(queryParams) });
-  const gDepotDailyQ  = useQuery({ queryKey: ['depotDailySpend',    queryParams], queryFn: () => fetchGoogleDepotDaily(queryParams) });
-  const mDepotDailyQ  = useQuery({ queryKey: ['metaDepotDailySpend', queryParams], queryFn: () => fetchMetaDepotDaily(queryParams) });
+  const gDailyQ       = useQuery({ queryKey: ['googleDaily',         queryParams], queryFn: () => fetchGoogleDaily(queryParams) });
+  const mDailyQ       = useQuery({ queryKey: ['metaDaily',           queryParams], queryFn: () => fetchMetaDaily(queryParams) });
   const xeroPnlQ      = useQuery({ queryKey: ['xeroPnl',       queryParams], queryFn: () => fetchXeroPnl(queryParams), retry: 1 });
   const brmQ          = useQuery({ queryKey: ['brmConv',       queryParams], queryFn: () => fetchGa4BikeRental(queryParams) });
   const rezdyProductsQ = useQuery({ queryKey: ['rezdyProducts', queryParams], queryFn: () => fetchGa4RezdyProducts(queryParams) });
@@ -116,8 +117,10 @@ export default function SingleDayBikeHire() {
   const totalConfirmedRevenue = sdHubspotRevenue + rezdyRevenue + (bikeHireRevenue ?? 0) || null;
 
   const sdTaggedSpend = mp?.sdTaggedSpendNzd ?? null;
-  const costPerConversion = sdTaggedSpend !== null && totalConversions > 0
-    ? sdTaggedSpend / totalConversions
+  // $/Conversion excludes bike hire (SD ad spend ÷ HubSpot SD + Rezdy only)
+  const sdConversionsForCpc = (sdHubspotConversions ?? 0) + (rezdyConversions ?? 0);
+  const costPerConversion = sdTaggedSpend !== null && sdConversionsForCpc > 0
+    ? sdTaggedSpend / sdConversionsForCpc
     : null;
 
   // ── Depot breakdown ──────────────────────────────────────────────────────────
@@ -156,15 +159,15 @@ export default function SingleDayBikeHire() {
     return Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
   }, [gTourTypeQ.data, mTourTypeQ.data, sdLeadsQ.data, rezdyQ.data]);
 
-  // ── Weekly trend (depot-filterable) ──────────────────────────────────────────
+  // ── Weekly trend (depot-filterable lines, spend mode toggle) ─────────────────
   const weeklyTrendData = React.useMemo(() => {
     const byWeek = {};
     const ensure = wk => {
       if (!byWeek[wk]) byWeek[wk] = { date: wk, google: 0, meta: 0, enquiries: 0, hsConversions: 0, rezdy: 0 };
     };
 
-    // Spend — SD-tagged for All; depot total for a specific depot
-    if (trendDepot === 'All') {
+    // Spend — either SD-tagged or all spend depending on spendMode
+    if (spendMode === 'sd') {
       for (const r of (Array.isArray(gTourTypeQ.data) ? gTourTypeQ.data : [])) {
         const wk = weekStart(r.date); ensure(wk); byWeek[wk].google += r.SD || 0;
       }
@@ -172,15 +175,15 @@ export default function SingleDayBikeHire() {
         const wk = weekStart(r.date); ensure(wk); byWeek[wk].meta += r.SD || 0;
       }
     } else {
-      for (const r of (Array.isArray(gDepotDailyQ.data) ? gDepotDailyQ.data : [])) {
-        const wk = weekStart(r.date); ensure(wk); byWeek[wk].google += r[trendDepot] || 0;
+      for (const r of toArr(gDailyQ.data)) {
+        const wk = weekStart(r.date); ensure(wk); byWeek[wk].google += r.spendNzd || 0;
       }
-      for (const r of (Array.isArray(mDepotDailyQ.data) ? mDepotDailyQ.data : [])) {
-        const wk = weekStart(r.date); ensure(wk); byWeek[wk].meta += r[trendDepot] || 0;
+      for (const r of toArr(mDailyQ.data)) {
+        const wk = weekStart(r.date); ensure(wk); byWeek[wk].meta += r.spendNzd || 0;
       }
     }
 
-    // SD enquiries — filter by depot via .regions
+    // SD enquiries — filtered by selected depot
     for (const d of sdLeadsQ.data?.deals || []) {
       if (trendDepot !== 'All' && !d.regions?.includes(trendDepot)) continue;
       const date = d.createdate?.split('T')[0];
@@ -188,7 +191,7 @@ export default function SingleDayBikeHire() {
       const wk = weekStart(date); ensure(wk); byWeek[wk].enquiries++;
     }
 
-    // SD HubSpot conversions — filter by depot via .regions
+    // SD HubSpot conversions — filtered by selected depot
     for (const d of sdClosedQ.data?.deals || []) {
       if (trendDepot !== 'All' && !d.regions?.includes(trendDepot)) continue;
       const date = (d.closedate || d.createdate)?.split('T')[0];
@@ -196,17 +199,13 @@ export default function SingleDayBikeHire() {
       const wk = weekStart(date); ensure(wk); byWeek[wk].hsConversions++;
     }
 
-    // Rezdy — always total (no depot attribution available)
-    if (trendDepot === 'All') {
-      for (const r of rezdyQ.data?.daily || []) {
-        const wk = weekStart(r.date); ensure(wk); byWeek[wk].rezdy += r.conversions || 0;
-      }
+    // Rezdy — always total (no depot attribution)
+    for (const r of rezdyQ.data?.daily || []) {
+      const wk = weekStart(r.date); ensure(wk); byWeek[wk].rezdy += r.conversions || 0;
     }
 
     return Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
-  }, [gTourTypeQ.data, mTourTypeQ.data, gDepotDailyQ.data, mDepotDailyQ.data, sdLeadsQ.data, sdClosedQ.data, rezdyQ.data, trendDepot]);
-
-  const depotLoading = sdLeadsQ.isLoading || sdClosedQ.isLoading || marketingPerfQ.isLoading;
+  }, [gTourTypeQ.data, mTourTypeQ.data, gDailyQ.data, mDailyQ.data, sdLeadsQ.data, sdClosedQ.data, rezdyQ.data, trendDepot, spendMode]);
 
   return (
     <div className="p-6 space-y-6">
@@ -256,7 +255,7 @@ export default function SingleDayBikeHire() {
               format="currency"
               invertPositive
               loading={marketingPerfQ.isLoading || sdClosedQ.isLoading || rezdyQ.isLoading || brmQ.isLoading}
-              subtitle="SD-tagged spend ÷ HubSpot + Rezdy + Bike Hire"
+              subtitle="SD-tagged spend ÷ HubSpot SD + Rezdy"
             />
             <KpiCard
               label="Total Confirmed Revenue"
@@ -269,86 +268,39 @@ export default function SingleDayBikeHire() {
         )}
       </div>
 
-      {/* ── Chart + depot table ─────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-        {/* Weekly spend vs enquiries + Rezdy */}
-        <div className="card">
-          <h3 className="text-sm font-medium text-gray-600 mb-4">
-            SD-Tagged Spend vs SD Enquiries &amp; Rezdy Conversions (weekly)
-          </h3>
-          {weeklyChartData.length === 0 ? (
-            <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>
-          ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <ComposedChart data={weeklyChartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fill: '#6b7280', fontSize: 11 }} />
-                <YAxis yAxisId="left"
-                  tickFormatter={v => v >= 1000 ? `$${(v/1000).toFixed(1)}k` : `$${v.toFixed(0)}`}
-                  tick={{ fill: '#6b7280', fontSize: 11 }} />
-                <YAxis yAxisId="right" orientation="right" tick={{ fill: '#6b7280', fontSize: 11 }} allowDecimals={false} />
-                <Tooltip
-                  labelFormatter={fmtDate}
-                  formatter={(v, name) =>
-                    name === 'SD Enquiries' || name === 'Rezdy'
-                      ? [v, name]
-                      : [fmtNzd(v), name]
-                  }
-                  contentStyle={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
-                />
-                <Legend wrapperStyle={{ fontSize: 12, color: '#6b7280' }} />
-                <Bar yAxisId="left" dataKey="google" name="Google Ads" fill={COLORS.google} stackId="spend" />
-                <Bar yAxisId="left" dataKey="meta"   name="Meta Ads"   fill={COLORS.meta}   stackId="spend" />
-                <Line yAxisId="right" type="monotone" dataKey="sdEnquiries" name="SD Enquiries" stroke={COLORS.enquiry} dot={false} strokeWidth={2} />
-                <Line yAxisId="right" type="monotone" dataKey="rezdy" name="Rezdy" stroke={COLORS.rezdy} dot={false} strokeWidth={2} connectNulls />
-              </ComposedChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-
-        {/* Depot breakdown table */}
-        <div className="card">
-          <h3 className="text-sm font-medium text-gray-600 mb-4">Breakdown by Depot</h3>
-          {depotLoading ? (
-            <div className="h-48 flex items-center justify-center text-gray-400 text-sm">Loading…</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs font-semibold uppercase tracking-wide text-gray-400 border-b border-gray-100">
-                    <th className="pb-2 pr-4">Depot</th>
-                    <th className="pb-2 pr-4 text-right">Enquiries</th>
-                    <th className="pb-2 pr-4 text-right">Conversions</th>
-                    <th className="pb-2 text-right">$/SD Enquiry</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {/* Total row */}
-                  <tr className="border-b border-gray-100 font-semibold text-gray-800">
-                    <td className="py-2 pr-4">Total</td>
-                    <td className="py-2 pr-4 text-right">{sdEnquiryByDepot.total}</td>
-                    <td className="py-2 pr-4 text-right">{sdClosedByDepot.total}</td>
-                    <td className="py-2 text-right">{fmtCurrency(mp?.costPerEnquiry?.sd?.total)}</td>
-                  </tr>
-                  {DEPOTS.map(depot => (
-                    <tr key={depot} className="border-b border-gray-50 text-gray-600 hover:bg-gray-50">
-                      <td className="py-2 pr-4">{depot}</td>
-                      <td className="py-2 pr-4 text-right">{sdEnquiryByDepot.byDepot[depot] ?? 0}</td>
-                      <td className="py-2 pr-4 text-right">{sdClosedByDepot.byDepot[depot] ?? 0}</td>
-                      <td className="py-2 text-right">
-                        {fmtCurrency(mp?.costPerEnquiry?.sd?.byDepot?.[depot])}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <p className="mt-3 text-xs text-gray-400">
-                Conversions = HubSpot SD confirmed deals · Rezdy bookings ({rezdyConversions ?? '—'} total) have no depot tag
-              </p>
-            </div>
-          )}
-        </div>
+      {/* ── Small summary chart ──────────────────────────────────────────────── */}
+      <div className="card">
+        <h3 className="text-sm font-medium text-gray-600 mb-4">
+          SD-Tagged Spend vs SD Enquiries &amp; Rezdy Conversions (weekly)
+        </h3>
+        {weeklyChartData.length === 0 ? (
+          <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={220}>
+            <ComposedChart data={weeklyChartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fill: '#6b7280', fontSize: 11 }} />
+              <YAxis yAxisId="left"
+                tickFormatter={v => v >= 1000 ? `$${(v/1000).toFixed(1)}k` : `$${v.toFixed(0)}`}
+                tick={{ fill: '#6b7280', fontSize: 11 }} />
+              <YAxis yAxisId="right" orientation="right" tick={{ fill: '#6b7280', fontSize: 11 }} allowDecimals={false} />
+              <Tooltip
+                labelFormatter={fmtDate}
+                formatter={(v, name) =>
+                  name === 'SD Enquiries' || name === 'Rezdy'
+                    ? [v, name]
+                    : [fmtNzd(v), name]
+                }
+                contentStyle={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
+              />
+              <Legend wrapperStyle={{ fontSize: 12, color: '#6b7280' }} />
+              <Bar yAxisId="left" dataKey="google" name="Google Ads" fill={COLORS.google} stackId="spend" />
+              <Bar yAxisId="left" dataKey="meta"   name="Meta Ads"   fill={COLORS.meta}   stackId="spend" />
+              <Line yAxisId="right" type="monotone" dataKey="sdEnquiries" name="SD Enquiries" stroke={COLORS.enquiry} dot={false} strokeWidth={2} />
+              <Line yAxisId="right" type="monotone" dataKey="rezdy" name="Rezdy" stroke={COLORS.rezdy} dot={false} strokeWidth={2} connectNulls />
+            </ComposedChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       {/* ── Weekly trend + top Rezdy tours ─────────────────────────────────── */}
@@ -356,33 +308,51 @@ export default function SingleDayBikeHire() {
 
       {/* Weekly trend chart (depot-filterable) — spans 2 cols */}
       <div className="card lg:col-span-2">
-        {/* Header + depot picker */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        {/* Header + controls */}
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
           <div>
             <h3 className="text-sm font-medium text-gray-600">
               SD Performance Over Time (weekly)
             </h3>
-            {trendDepot !== 'All' && (
-              <p className="text-xs text-gray-400 mt-0.5">
-                Spend = all {trendDepot} spend · Rezdy hidden (no depot data)
-              </p>
-            )}
+            <p className="text-xs text-gray-400 mt-0.5">
+              Spend = {spendMode === 'sd' ? 'SD-tagged' : 'all'} · {trendDepot !== 'All' ? `Enquiries & conversions filtered to ${trendDepot} · ` : ''}Rezdy = all depots
+            </p>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {['All', ...DEPOTS].map(d => (
-              <button
-                key={d}
-                onClick={() => setTrendDepot(d)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                  trendDepot === d
-                    ? 'text-white'
-                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                }`}
-                style={trendDepot === d ? { backgroundColor: '#99ca3c' } : {}}
-              >
-                {d}
-              </button>
-            ))}
+          <div className="flex flex-col items-end gap-2">
+            {/* Spend mode toggle */}
+            <div className="flex gap-1">
+              {[['sd', 'SD Spend'], ['all', 'All Spend']].map(([val, label]) => (
+                <button
+                  key={val}
+                  onClick={() => setSpendMode(val)}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors border ${
+                    spendMode === val
+                      ? 'text-white border-transparent'
+                      : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                  }`}
+                  style={spendMode === val ? { backgroundColor: '#6b7280', borderColor: '#6b7280' } : {}}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {/* Depot picker */}
+            <div className="flex flex-wrap gap-1.5">
+              {['All', ...DEPOTS].map(d => (
+                <button
+                  key={d}
+                  onClick={() => setTrendDepot(d)}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                    trendDepot === d
+                      ? 'text-white'
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  }`}
+                  style={trendDepot === d ? { backgroundColor: '#99ca3c' } : {}}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -413,9 +383,7 @@ export default function SingleDayBikeHire() {
               <Bar yAxisId="spend" dataKey="meta"         name="Meta Ads"        fill={COLORS.meta}         stackId="spend" />
               <Line yAxisId="count" type="monotone" dataKey="enquiries"     name="SD Enquiries"    stroke={COLORS.enquiry}      dot={false} strokeWidth={2} />
               <Line yAxisId="count" type="monotone" dataKey="hsConversions" name="HS Conversions"  stroke={COLORS.hsConversion} dot={false} strokeWidth={2} />
-              {trendDepot === 'All' && (
-                <Line yAxisId="count" type="monotone" dataKey="rezdy" name="Rezdy" stroke={COLORS.rezdy} dot={false} strokeWidth={2} connectNulls />
-              )}
+              <Line yAxisId="count" type="monotone" dataKey="rezdy"         name="Rezdy"           stroke={COLORS.rezdy}        dot={false} strokeWidth={2} connectNulls />
             </ComposedChart>
           </ResponsiveContainer>
         )}
@@ -430,7 +398,7 @@ export default function SingleDayBikeHire() {
           <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>
         ) : (
           <ol className="space-y-2">
-            {rezdyProductsQ.data.products.slice(0, 12).map((p, i) => (
+            {[...rezdyProductsQ.data.products].sort((a, b) => b.quantity - a.quantity).slice(0, 12).map((p, i) => (
               <li key={p.name} className="flex items-start gap-2 text-sm">
                 <span className="text-xs font-bold text-gray-300 w-5 shrink-0 pt-0.5">{i + 1}</span>
                 <div className="flex-1 min-w-0">
