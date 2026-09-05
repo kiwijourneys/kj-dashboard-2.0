@@ -93,15 +93,15 @@ async function getBookings() {
   return getOrFetch(cacheKey, async () => {
     const orders = await fetchAllSince(cutoff);
 
+    // dailyMap: { date → { date, conversions, revenueNzd, products: { code → {...} } } }
     const dailyMap = {};
-    const productMap = {};
 
     for (const order of orders) {
       const date = orderDate(order);
       if (!date) continue;
       const amt = toNzd(order.totalAmount);
 
-      if (!dailyMap[date]) dailyMap[date] = { date, conversions: 0, revenueNzd: 0 };
+      if (!dailyMap[date]) dailyMap[date] = { date, conversions: 0, revenueNzd: 0, products: {} };
       dailyMap[date].conversions++;
       dailyMap[date].revenueNzd += amt;
 
@@ -113,17 +113,25 @@ async function getBookings() {
           ?? 1;
         const itemAmt = (order.items.length > 1) ? amt / order.items.length : amt;
 
-        if (!productMap[code]) productMap[code] = { name, productCode: code, quantity: 0, revenueNzd: 0 };
-        productMap[code].quantity   += qty;
-        productMap[code].revenueNzd += itemAmt;
+        const dp = dailyMap[date].products;
+        if (!dp[code]) dp[code] = { name, productCode: code, quantity: 0, revenueNzd: 0 };
+        dp[code].quantity   += qty;
+        dp[code].revenueNzd += itemAmt;
       }
     }
 
-    const daily    = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
-    const products = Object.values(productMap).sort((a, b) => b.revenueNzd - a.revenueNzd);
+    // Serialise daily: convert products map → sorted array for each day
+    const daily = Object.values(dailyMap)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(d => ({
+        date: d.date,
+        conversions: d.conversions,
+        revenueNzd: d.revenueNzd,
+        products: Object.values(d.products).sort((a, b) => b.revenueNzd - a.revenueNzd),
+      }));
 
     recordSync('rezdy');
-    return { cutoffDate: cutoff, daily, products };
+    return { cutoffDate: cutoff, daily };
   });
 }
 

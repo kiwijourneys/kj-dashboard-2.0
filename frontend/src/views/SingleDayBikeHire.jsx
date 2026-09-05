@@ -128,16 +128,36 @@ export default function SingleDayBikeHire() {
   // Rezdy: always fetch the full dataset (last ~400 days by creation date).
   // Period-specific numbers are computed below by filtering the daily array.
   const rezdyQ        = useQuery({ queryKey: ['rezdyBookings'], queryFn: () => fetchRezdyBookings() });
+
+  // ── Rezdy daily data scoped to selected period (defined early — used by products + charts)
+  const rezdyPeriodDaily = React.useMemo(() => {
+    const daily = rezdyQ.data?.daily || [];
+    const s = queryParams.startDate;
+    const e = queryParams.endDate;
+    if (!s || !e) return daily;
+    return daily.filter(d => d.date >= s && d.date <= e);
+  }, [rezdyQ.data, queryParams.startDate, queryParams.endDate]);
+
   const gTourTypeQ    = useQuery({ queryKey: ['googleTourTypeDaily', queryParams], queryFn: () => fetchGoogleTourTypeDaily(queryParams) });
   const mTourTypeQ    = useQuery({ queryKey: ['metaTourTypeDaily',  queryParams], queryFn: () => fetchMetaTourTypeDaily(queryParams) });
   const gDailyQ       = useQuery({ queryKey: ['googleDaily',         queryParams], queryFn: () => fetchGoogleDaily(queryParams) });
   const mDailyQ       = useQuery({ queryKey: ['metaDaily',           queryParams], queryFn: () => fetchMetaDaily(queryParams) });
   const xeroPnlQ      = useQuery({ queryKey: ['xeroPnl',       queryParams], queryFn: () => fetchXeroPnl(queryParams), retry: 1 });
   const brmQ          = useQuery({ queryKey: ['brmConv',       queryParams], queryFn: () => fetchGa4BikeRental(queryParams) });
-  // products come from the same Rezdy bookings response — no separate query needed
+  // Products aggregated from the period-filtered daily data (so Top Tours respects date selector)
+  // Each daily entry now carries its own products array; we merge them here.
   const rezdyProductsQ = React.useMemo(() => {
     if (!rezdyQ.data) return { data: undefined };
-    const products = rezdyQ.data.products || [];
+    const productMap = {};
+    for (const day of rezdyPeriodDaily) {
+      for (const p of day.products || []) {
+        const k = p.productCode || p.name;
+        if (!productMap[k]) productMap[k] = { name: p.name, productCode: p.productCode, quantity: 0, revenueNzd: 0 };
+        productMap[k].quantity   += p.quantity;
+        productMap[k].revenueNzd += p.revenueNzd;
+      }
+    }
+    const products = Object.values(productMap).sort((a, b) => b.revenueNzd - a.revenueNzd);
     return {
       data: {
         products,
@@ -145,7 +165,7 @@ export default function SingleDayBikeHire() {
         totalRevenue:  products.reduce((s, p) => s + p.revenueNzd, 0),
       },
     };
-  }, [rezdyQ.data]);
+  }, [rezdyQ.data, rezdyPeriodDaily]);
   const marketingPerfQ = useQuery({
     queryKey: ['marketingPerformance', queryParams.startDate, queryParams.endDate],
     queryFn: () => fetchMarketingPerformance({ startDate: queryParams.startDate, endDate: queryParams.endDate }),
@@ -211,16 +231,6 @@ export default function SingleDayBikeHire() {
     const converted = enquiries.filter(d => closedIds.has(d.id)).length;
     return { rate: (converted / enquiries.length) * 100, converted, total: enquiries.length };
   }, [sdLeadsQ.data, sdClosedQ.data]);
-
-  // ── Rezdy daily data scoped to the selected period ──────────────────────────
-  // The backend returns ~400 days; filter here so charts match the date selector.
-  const rezdyPeriodDaily = React.useMemo(() => {
-    const daily = rezdyQ.data?.daily || [];
-    const s = queryParams.startDate;
-    const e = queryParams.endDate;
-    if (!s || !e) return daily;
-    return daily.filter(d => d.date >= s && d.date <= e);
-  }, [rezdyQ.data, queryParams.startDate, queryParams.endDate]);
 
   // ── 4-week rolling CVR (computed after weeklyChartData is available) ─────────
   // Defined below weeklyChartData — derived from it via useMemo.
