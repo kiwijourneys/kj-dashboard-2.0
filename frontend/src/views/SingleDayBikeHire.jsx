@@ -68,7 +68,6 @@ function bucketByDepot(deals) {
 export default function SingleDayBikeHire() {
   const { queryParams } = useFilters();
   const [trendDepot, setTrendDepot] = React.useState('All');
-  const [spendMode,  setSpendMode]  = React.useState('sd'); // 'sd' | 'all'
 
   const summaryQ      = useQuery({ queryKey: ['summary',       queryParams], queryFn: () => fetchSummary(queryParams) });
   const sdLeadsQ      = useQuery({ queryKey: ['sdLeads',       queryParams], queryFn: () => fetchSdLeads(queryParams) });
@@ -127,19 +126,19 @@ export default function SingleDayBikeHire() {
   const sdEnquiryByDepot  = React.useMemo(() => bucketByDepot(sdLeadsQ.data?.deals),  [sdLeadsQ.data]);
   const sdClosedByDepot   = React.useMemo(() => bucketByDepot(sdClosedQ.data?.deals), [sdClosedQ.data]);
 
-  // ── Weekly SD-tagged spend vs SD enquiries + Rezdy chart ─────────────────────
+  // ── Weekly ALL spend vs SD enquiries + Rezdy (summary chart) ────────────────
   const weeklyChartData = React.useMemo(() => {
     const byWeek = {};
     const ensure = wk => {
       if (!byWeek[wk]) byWeek[wk] = { date: wk, google: 0, meta: 0, sdEnquiries: 0, rezdy: 0 };
     };
 
-    // SD-tagged spend only (campaigns/adsets tagged Single Day)
-    for (const r of (Array.isArray(gTourTypeQ.data) ? gTourTypeQ.data : [])) {
-      const wk = weekStart(r.date); ensure(wk); byWeek[wk].google += r.SD || 0;
+    // All spend (total, not SD-tagged)
+    for (const r of toArr(gDailyQ.data)) {
+      const wk = weekStart(r.date); ensure(wk); byWeek[wk].google += r.spendNzd || 0;
     }
-    for (const r of (Array.isArray(mTourTypeQ.data) ? mTourTypeQ.data : [])) {
-      const wk = weekStart(r.date); ensure(wk); byWeek[wk].meta += r.SD || 0;
+    for (const r of toArr(mDailyQ.data)) {
+      const wk = weekStart(r.date); ensure(wk); byWeek[wk].meta += r.spendNzd || 0;
     }
 
     for (const d of sdLeadsQ.data?.deals || []) {
@@ -157,30 +156,21 @@ export default function SingleDayBikeHire() {
     }
 
     return Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
-  }, [gTourTypeQ.data, mTourTypeQ.data, sdLeadsQ.data, rezdyQ.data]);
+  }, [gDailyQ.data, mDailyQ.data, sdLeadsQ.data, rezdyQ.data]);
 
-  // ── Weekly trend (depot-filterable lines, spend mode toggle) ─────────────────
+  // ── Weekly trend — SD-tagged spend + depot-filterable lines ──────────────────
   const weeklyTrendData = React.useMemo(() => {
     const byWeek = {};
     const ensure = wk => {
       if (!byWeek[wk]) byWeek[wk] = { date: wk, google: 0, meta: 0, enquiries: 0, hsConversions: 0, rezdy: 0 };
     };
 
-    // Spend — either SD-tagged or all spend depending on spendMode
-    if (spendMode === 'sd') {
-      for (const r of (Array.isArray(gTourTypeQ.data) ? gTourTypeQ.data : [])) {
-        const wk = weekStart(r.date); ensure(wk); byWeek[wk].google += r.SD || 0;
-      }
-      for (const r of (Array.isArray(mTourTypeQ.data) ? mTourTypeQ.data : [])) {
-        const wk = weekStart(r.date); ensure(wk); byWeek[wk].meta += r.SD || 0;
-      }
-    } else {
-      for (const r of toArr(gDailyQ.data)) {
-        const wk = weekStart(r.date); ensure(wk); byWeek[wk].google += r.spendNzd || 0;
-      }
-      for (const r of toArr(mDailyQ.data)) {
-        const wk = weekStart(r.date); ensure(wk); byWeek[wk].meta += r.spendNzd || 0;
-      }
+    // Spend — always SD-tagged
+    for (const r of (Array.isArray(gTourTypeQ.data) ? gTourTypeQ.data : [])) {
+      const wk = weekStart(r.date); ensure(wk); byWeek[wk].google += r.SD || 0;
+    }
+    for (const r of (Array.isArray(mTourTypeQ.data) ? mTourTypeQ.data : [])) {
+      const wk = weekStart(r.date); ensure(wk); byWeek[wk].meta += r.SD || 0;
     }
 
     // SD enquiries — filtered by selected depot
@@ -205,7 +195,7 @@ export default function SingleDayBikeHire() {
     }
 
     return Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
-  }, [gTourTypeQ.data, mTourTypeQ.data, gDailyQ.data, mDailyQ.data, sdLeadsQ.data, sdClosedQ.data, rezdyQ.data, trendDepot, spendMode]);
+  }, [gTourTypeQ.data, mTourTypeQ.data, sdLeadsQ.data, sdClosedQ.data, rezdyQ.data, trendDepot]);
 
   return (
     <div className="p-6 space-y-6">
@@ -271,7 +261,7 @@ export default function SingleDayBikeHire() {
       {/* ── Small summary chart ──────────────────────────────────────────────── */}
       <div className="card">
         <h3 className="text-sm font-medium text-gray-600 mb-4">
-          SD-Tagged Spend vs SD Enquiries &amp; Rezdy Conversions (weekly)
+          All Spend vs SD Enquiries &amp; Rezdy Conversions (weekly)
         </h3>
         {weeklyChartData.length === 0 ? (
           <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>
@@ -308,51 +298,31 @@ export default function SingleDayBikeHire() {
 
       {/* Weekly trend chart (depot-filterable) — spans 2 cols */}
       <div className="card lg:col-span-2">
-        {/* Header + controls */}
-        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+        {/* Header + depot picker */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
             <h3 className="text-sm font-medium text-gray-600">
               SD Performance Over Time (weekly)
             </h3>
             <p className="text-xs text-gray-400 mt-0.5">
-              Spend = {spendMode === 'sd' ? 'SD-tagged' : 'all'} · {trendDepot !== 'All' ? `Enquiries & conversions filtered to ${trendDepot} · ` : ''}Rezdy = all depots
+              Spend = SD-tagged · {trendDepot !== 'All' ? `Enquiries & conversions filtered to ${trendDepot} · ` : ''}Rezdy = all depots
             </p>
           </div>
-          <div className="flex flex-col items-end gap-2">
-            {/* Spend mode toggle */}
-            <div className="flex gap-1">
-              {[['sd', 'SD Spend'], ['all', 'All Spend']].map(([val, label]) => (
-                <button
-                  key={val}
-                  onClick={() => setSpendMode(val)}
-                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors border ${
-                    spendMode === val
-                      ? 'text-white border-transparent'
-                      : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
-                  }`}
-                  style={spendMode === val ? { backgroundColor: '#6b7280', borderColor: '#6b7280' } : {}}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            {/* Depot picker */}
-            <div className="flex flex-wrap gap-1.5">
-              {['All', ...DEPOTS].map(d => (
-                <button
-                  key={d}
-                  onClick={() => setTrendDepot(d)}
-                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                    trendDepot === d
-                      ? 'text-white'
-                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                  }`}
-                  style={trendDepot === d ? { backgroundColor: '#99ca3c' } : {}}
-                >
-                  {d}
-                </button>
-              ))}
-            </div>
+          <div className="flex flex-wrap gap-1.5">
+            {['All', ...DEPOTS].map(d => (
+              <button
+                key={d}
+                onClick={() => setTrendDepot(d)}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                  trendDepot === d
+                    ? 'text-white'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                }`}
+                style={trendDepot === d ? { backgroundColor: '#99ca3c' } : {}}
+              >
+                {d}
+              </button>
+            ))}
           </div>
         </div>
 
