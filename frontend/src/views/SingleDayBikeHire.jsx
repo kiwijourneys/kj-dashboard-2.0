@@ -404,10 +404,20 @@ export default function SingleDayBikeHire() {
   // ── Conv chart data (mode-switched) ──────────────────────────────────────────
   const convChartData = React.useMemo(() => {
     return weeklyConvByDepot.map(row => {
-      const rzN  = row.rezdyTotal * (rezdyDepotFractions['Nelson']        || 0);
-      const rzWC = row.rezdyTotal * (rezdyDepotFractions['West Coast']    || 0);
-      const rzCO = row.rezdyTotal * (rezdyDepotFractions['Central Otago'] || 0);
-      const rzKG = row.rezdyTotal * (rezdyDepotFractions['Kawarau Gorge'] || 0);
+      // Use largest-remainder rounding so depot integers always sum to rezdyTotal
+      const total = row.rezdyTotal;
+      const fracs = [
+        ['Nelson',        rezdyDepotFractions['Nelson']        || 0],
+        ['West Coast',    rezdyDepotFractions['West Coast']    || 0],
+        ['Central Otago', rezdyDepotFractions['Central Otago'] || 0],
+        ['Kawarau Gorge', rezdyDepotFractions['Kawarau Gorge'] || 0],
+      ];
+      const floored = fracs.map(([d, f]) => ({ d, f: total * f, n: Math.floor(total * f) }));
+      let remainder = total - floored.reduce((s, x) => s + x.n, 0);
+      floored.sort((a, b) => (b.f - b.n) - (a.f - a.n));
+      floored.forEach(x => { if (remainder-- > 0) x.n++; });
+      const rz = Object.fromEntries(floored.map(x => [x.d, x.n]));
+
       if (convMode === 'hubspot') return {
         date: row.date,
         Nelson: row.nelsonHS, 'West Coast': row.wcHS,
@@ -415,14 +425,14 @@ export default function SingleDayBikeHire() {
       };
       if (convMode === 'rezdy') return {
         date: row.date,
-        Nelson: rzN, 'West Coast': rzWC,
-        'Central Otago': rzCO, 'Kawarau Gorge': rzKG, Other: 0,
+        Nelson: rz['Nelson'], 'West Coast': rz['West Coast'],
+        'Central Otago': rz['Central Otago'], 'Kawarau Gorge': rz['Kawarau Gorge'], Other: 0,
       };
       // total
       return {
         date: row.date,
-        Nelson: row.nelsonHS + rzN, 'West Coast': row.wcHS + rzWC,
-        'Central Otago': row.coHS + rzCO, 'Kawarau Gorge': row.kgHS + rzKG,
+        Nelson: row.nelsonHS + rz['Nelson'], 'West Coast': row.wcHS + rz['West Coast'],
+        'Central Otago': row.coHS + rz['Central Otago'], 'Kawarau Gorge': row.kgHS + rz['Kawarau Gorge'],
         Other: row.otherHS,
       };
     });
