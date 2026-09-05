@@ -212,6 +212,16 @@ export default function SingleDayBikeHire() {
     return { rate: (converted / enquiries.length) * 100, converted, total: enquiries.length };
   }, [sdLeadsQ.data, sdClosedQ.data]);
 
+  // ── Rezdy daily data scoped to the selected period ──────────────────────────
+  // The backend returns ~400 days; filter here so charts match the date selector.
+  const rezdyPeriodDaily = React.useMemo(() => {
+    const daily = rezdyQ.data?.daily || [];
+    const s = queryParams.startDate;
+    const e = queryParams.endDate;
+    if (!s || !e) return daily;
+    return daily.filter(d => d.date >= s && d.date <= e);
+  }, [rezdyQ.data, queryParams.startDate, queryParams.endDate]);
+
   // ── 4-week rolling CVR (computed after weeklyChartData is available) ─────────
   // Defined below weeklyChartData — derived from it via useMemo.
 
@@ -246,13 +256,13 @@ export default function SingleDayBikeHire() {
       const wk = weekStart(date); ensure(wk); byWeek[wk].hsConversions++;
     }
 
-    // Rezdy — always total
-    for (const r of rezdyQ.data?.daily || []) {
+    // Rezdy — period-filtered
+    for (const r of rezdyPeriodDaily) {
       const wk = weekStart(r.date); ensure(wk); byWeek[wk].rezdy += r.conversions || 0;
     }
 
     return Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
-  }, [gDailyQ.data, mDailyQ.data, sdLeadsQ.data, sdClosedQ.data, rezdyQ.data, depot]);
+  }, [gDailyQ.data, mDailyQ.data, sdLeadsQ.data, sdClosedQ.data, rezdyPeriodDaily, depot]);
 
   // ── 4-week rolling CVR (cohort-based, deal-ID matched) ──────────────────────
   // For each week, count enquiries created that week. Of those deal IDs, how many
@@ -317,13 +327,13 @@ export default function SingleDayBikeHire() {
       const wk = weekStart(date); ensure(wk); byWeek[wk].hsConversions++;
     }
 
-    // Rezdy — always total
-    for (const r of rezdyQ.data?.daily || []) {
+    // Rezdy — period-filtered
+    for (const r of rezdyPeriodDaily) {
       const wk = weekStart(r.date); ensure(wk); byWeek[wk].rezdy += r.conversions || 0;
     }
 
     return Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
-  }, [gTourTypeQ.data, mTourTypeQ.data, sdLeadsQ.data, sdClosedQ.data, rezdyQ.data, depot]);
+  }, [gTourTypeQ.data, mTourTypeQ.data, sdLeadsQ.data, sdClosedQ.data, rezdyPeriodDaily, depot]);
 
   // ── Rezdy depot fractions (from product volumes) ─────────────────────────────
   // Used to split Rezdy daily totals by depot proportionally.
@@ -372,14 +382,14 @@ export default function SingleDayBikeHire() {
       }
     }
 
-    // Rezdy — distribute by depot using product-volume fractions
-    for (const r of rezdyQ.data?.daily || []) {
+    // Rezdy — distribute by depot using product-volume fractions (period-filtered)
+    for (const r of rezdyPeriodDaily) {
       const wk = weekStart(r.date); ensure(wk);
       byWeek[wk].rezdyTotal += r.conversions || 0;
     }
 
     return Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
-  }, [sdClosedQ.data, rezdyQ.data]);
+  }, [sdClosedQ.data, rezdyPeriodDaily]);
 
   // ── Conv chart data (mode-switched) ──────────────────────────────────────────
   const convChartData = React.useMemo(() => {
