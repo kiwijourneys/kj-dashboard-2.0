@@ -519,7 +519,7 @@ export default function SingleDayBikeHire() {
             />
             <KpiCard
               label="Rezdy Revenue"
-              value={rezdyQ.data?.revenueNzd ?? null}
+              value={rezdyQ.isLoading ? null : rezdyPeriodStats.revenueNzd}
               format="currency"
               loading={rezdyQ.isLoading}
               subtitle="Confirmed orders · Rezdy API"
@@ -624,7 +624,8 @@ export default function SingleDayBikeHire() {
 
         {/* Top Rezdy tours by conversions */}
         <div className="card">
-          <h3 className="text-sm font-medium text-gray-600 mb-4">Top Rezdy Tours</h3>
+          <h3 className="text-sm font-medium text-gray-600 mb-1">Top Rezdy Tours</h3>
+          <p className="text-xs text-gray-400 mb-3">Numbers = pax booked · sorted by volume</p>
           {rezdyProductsQ.isLoading ? (
             <div className="h-48 flex items-center justify-center text-gray-400 text-sm">Loading…</div>
           ) : !rezdyProductsQ.data?.products?.length ? (
@@ -652,7 +653,7 @@ export default function SingleDayBikeHire() {
                 </li>
               ))}
               <li className="text-xs text-gray-400 pt-1 border-t border-gray-50">
-                Total: {rezdyProductsQ.data.totalQuantity} bookings · {fmtNzd(rezdyProductsQ.data.totalRevenue)}
+                {rezdyConversions ?? 0} orders · {rezdyProductsQ.data.totalQuantity} pax · {fmtNzd(rezdyProductsQ.data.totalRevenue)}
               </li>
             </ol>
           )}
