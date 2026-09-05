@@ -45,6 +45,9 @@ export const fetchMetaDaily      = (params) => api.get('/meta/daily-spend',     
 export const fetchMetaDepotDaily    = (params) => api.get('/meta/depot-daily-spend',    { params: toQs(params) }).then(r => r.data);
 export const fetchMetaTourTypeDaily = (params) => api.get('/meta/tourtype-daily-spend', { params: toQs(params) }).then(r => r.data);
 
+// ── Rezdy ─────────────────────────────────────────────────────────────────────
+export const fetchRezdyBookings = (params) => api.get('/rezdy/bookings', { params: toQs(params) }).then(r => r.data);
+
 // ── GA4 ───────────────────────────────────────────────────────────────────────
 export const fetchGa4Channels    = (params) => api.get('/ga4/channels',            { params: toQs(params) }).then(r => r.data);
 export const fetchGa4Organic     = (params) => api.get('/ga4/organic',             { params: toQs(params) }).then(r => r.data);

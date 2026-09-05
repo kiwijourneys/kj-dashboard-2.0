@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useFilters } from '../context/FilterContext';
 import {
   fetchSummary, fetchSdLeads, fetchSdClosed,
-  fetchGa4RezdyRev, fetchGa4BikeRental, fetchGa4RezdyProducts,
+  fetchRezdyBookings,
+  fetchGa4BikeRental,
   fetchGoogleTourTypeDaily, fetchMetaTourTypeDaily,
   fetchGoogleDaily, fetchMetaDaily,
   fetchXeroPnl, fetchMarketingPerformance,
@@ -77,6 +78,17 @@ function makeLegendToggle(setHidden) {
   };
 }
 
+// Rezdy product name → depot mapping (keyword-based)
+// CO checked first so "Lake Dunstan from Queenstown" → Central Otago (not KG)
+function rezdyNameToDepot(name) {
+  const n = (name || '').toLowerCase();
+  if (/lake dunstan|otago central|rail trail|roxburgh|bannockburn|carrick/i.test(n)) return 'Central Otago';
+  if (/kawarau|gibbston|arrowtown|adrenaline trail/i.test(n)) return 'Kawarau Gorge';
+  if (/west coast|hokitika|rainforest|wetland|best of the west/i.test(n)) return 'West Coast';
+  if (/mapua|nelson|rabbit island|spooners|abel tasman|kaiteriteri|moutere|great taste|paddle|coastal cruise|tunnel to town|trail transport/i.test(n)) return 'Nelson';
+  return null;
+}
+
 // Depot selector pill buttons (shared)
 function DepotSelector({ value, onChange }) {
   return (
@@ -113,14 +125,25 @@ export default function SingleDayBikeHire() {
   const summaryQ      = useQuery({ queryKey: ['summary',       queryParams], queryFn: () => fetchSummary(queryParams) });
   const sdLeadsQ      = useQuery({ queryKey: ['sdLeads',       queryParams], queryFn: () => fetchSdLeads(queryParams) });
   const sdClosedQ     = useQuery({ queryKey: ['sdClosed',      queryParams], queryFn: () => fetchSdClosed(queryParams) });
-  const rezdyQ        = useQuery({ queryKey: ['rezdyRev',      queryParams], queryFn: () => fetchGa4RezdyRev(queryParams) });
+  const rezdyQ        = useQuery({ queryKey: ['rezdyBookings',  queryParams], queryFn: () => fetchRezdyBookings(queryParams) });
   const gTourTypeQ    = useQuery({ queryKey: ['googleTourTypeDaily', queryParams], queryFn: () => fetchGoogleTourTypeDaily(queryParams) });
   const mTourTypeQ    = useQuery({ queryKey: ['metaTourTypeDaily',  queryParams], queryFn: () => fetchMetaTourTypeDaily(queryParams) });
   const gDailyQ       = useQuery({ queryKey: ['googleDaily',         queryParams], queryFn: () => fetchGoogleDaily(queryParams) });
   const mDailyQ       = useQuery({ queryKey: ['metaDaily',           queryParams], queryFn: () => fetchMetaDaily(queryParams) });
   const xeroPnlQ      = useQuery({ queryKey: ['xeroPnl',       queryParams], queryFn: () => fetchXeroPnl(queryParams), retry: 1 });
   const brmQ          = useQuery({ queryKey: ['brmConv',       queryParams], queryFn: () => fetchGa4BikeRental(queryParams) });
-  const rezdyProductsQ = useQuery({ queryKey: ['rezdyProducts', queryParams], queryFn: () => fetchGa4RezdyProducts(queryParams) });
+  // products come from the same Rezdy bookings response — no separate query needed
+  const rezdyProductsQ = React.useMemo(() => {
+    if (!rezdyQ.data) return { data: undefined };
+    const products = rezdyQ.data.products || [];
+    return {
+      data: {
+        products,
+        totalQuantity: products.reduce((s, p) => s + p.quantity, 0),
+        totalRevenue:  products.reduce((s, p) => s + p.revenueNzd, 0),
+      },
+    };
+  }, [rezdyQ.data]);
   const marketingPerfQ = useQuery({
     queryKey: ['marketingPerformance', queryParams.startDate, queryParams.endDate],
     queryFn: () => fetchMarketingPerformance({ startDate: queryParams.startDate, endDate: queryParams.endDate }),
@@ -283,14 +306,34 @@ export default function SingleDayBikeHire() {
     return Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
   }, [gTourTypeQ.data, mTourTypeQ.data, sdLeadsQ.data, sdClosedQ.data, rezdyQ.data, depot]);
 
+  // ── Rezdy depot fractions (from product volumes) ─────────────────────────────
+  // Used to split Rezdy daily totals by depot proportionally.
+  const rezdyDepotFractions = React.useMemo(() => {
+    const products = rezdyProductsQ.data?.products || [];
+    const totals = { Nelson: 0, 'West Coast': 0, 'Central Otago': 0, 'Kawarau Gorge': 0 };
+    let grandTotal = 0;
+    for (const p of products) {
+      const dep = rezdyNameToDepot(p.name);
+      if (dep && totals[dep] !== undefined) {
+        totals[dep] += p.quantity;
+        grandTotal  += p.quantity;
+      }
+    }
+    if (grandTotal === 0) {
+      // No product data yet — equal split as placeholder
+      return { Nelson: 0.25, 'West Coast': 0.25, 'Central Otago': 0.25, 'Kawarau Gorge': 0.25 };
+    }
+    return Object.fromEntries(DEPOTS.map(d => [d, (totals[d] || 0) / grandTotal]));
+  }, [rezdyProductsQ.data]);
+
   // ── Weekly conversions by depot (stacked) ────────────────────────────────────
   const weeklyConvByDepot = React.useMemo(() => {
     const byWeek = {};
     const ensure = wk => {
       if (!byWeek[wk]) byWeek[wk] = {
         date: wk,
-        Nelson: 0, 'West Coast': 0, 'Central Otago': 0, 'Kawarau Gorge': 0,
-        Other: 0, rezdy: 0,
+        nelsonHS: 0, wcHS: 0, coHS: 0, kgHS: 0, otherHS: 0,
+        rezdyTotal: 0,
       };
     };
 
@@ -298,25 +341,53 @@ export default function SingleDayBikeHire() {
     for (const d of sdClosedQ.data?.deals || []) {
       const date = (d.closedate || d.createdate)?.split('T')[0];
       if (!date) continue;
-      const wk = weekStart(date);
-      ensure(wk);
+      const wk = weekStart(date); ensure(wk);
       const depots = (d.regions || []).filter(r => DEPOTS.includes(r));
       if (depots.length === 0) {
-        byWeek[wk].Other++;
+        byWeek[wk].otherHS++;
       } else {
-        for (const dep of depots) byWeek[wk][dep]++;
+        if (depots.includes('Nelson'))        byWeek[wk].nelsonHS++;
+        if (depots.includes('West Coast'))    byWeek[wk].wcHS++;
+        if (depots.includes('Central Otago')) byWeek[wk].coHS++;
+        if (depots.includes('Kawarau Gorge')) byWeek[wk].kgHS++;
       }
     }
 
-    // Rezdy — no depot info, always total
+    // Rezdy — distribute by depot using product-volume fractions
     for (const r of rezdyQ.data?.daily || []) {
-      const wk = weekStart(r.date);
-      ensure(wk);
-      byWeek[wk].rezdy += r.conversions || 0;
+      const wk = weekStart(r.date); ensure(wk);
+      byWeek[wk].rezdyTotal += r.conversions || 0;
     }
 
     return Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
   }, [sdClosedQ.data, rezdyQ.data]);
+
+  // ── Conv chart data (mode-switched) ──────────────────────────────────────────
+  const convChartData = React.useMemo(() => {
+    return weeklyConvByDepot.map(row => {
+      const rzN  = row.rezdyTotal * (rezdyDepotFractions['Nelson']        || 0);
+      const rzWC = row.rezdyTotal * (rezdyDepotFractions['West Coast']    || 0);
+      const rzCO = row.rezdyTotal * (rezdyDepotFractions['Central Otago'] || 0);
+      const rzKG = row.rezdyTotal * (rezdyDepotFractions['Kawarau Gorge'] || 0);
+      if (convMode === 'hubspot') return {
+        date: row.date,
+        Nelson: row.nelsonHS, 'West Coast': row.wcHS,
+        'Central Otago': row.coHS, 'Kawarau Gorge': row.kgHS, Other: row.otherHS,
+      };
+      if (convMode === 'rezdy') return {
+        date: row.date,
+        Nelson: rzN, 'West Coast': rzWC,
+        'Central Otago': rzCO, 'Kawarau Gorge': rzKG, Other: 0,
+      };
+      // total
+      return {
+        date: row.date,
+        Nelson: row.nelsonHS + rzN, 'West Coast': row.wcHS + rzWC,
+        'Central Otago': row.coHS + rzCO, 'Kawarau Gorge': row.kgHS + rzKG,
+        Other: row.otherHS,
+      };
+    });
+  }, [weeklyConvByDepot, rezdyDepotFractions, convMode]);
 
   const LEGEND_STYLE = { fontSize: 12, color: '#6b7280', cursor: 'pointer' };
   const TOOLTIP_STYLE = { background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 };
@@ -399,6 +470,27 @@ export default function SingleDayBikeHire() {
               subtitle={conversionRate
                 ? `${conversionRate.converted} converted of ${conversionRate.total} enquiries · period`
                 : 'HubSpot SD enquiry → Booking Admin Complete / Complete'}
+            />
+            <KpiCard
+              label="HubSpot SD Revenue"
+              value={sdClosedQ.data?.totalRevenue ?? null}
+              format="currency"
+              loading={sdClosedQ.isLoading}
+              subtitle="Confirmed deals · HubSpot SD pipeline"
+            />
+            <KpiCard
+              label="Rezdy Revenue"
+              value={rezdyQ.data?.revenueNzd ?? null}
+              format="currency"
+              loading={rezdyQ.isLoading}
+              subtitle="GA4 purchase events"
+            />
+            <KpiCard
+              label="Bike Hire Revenue"
+              value={bikeHireRevenue}
+              format="currency"
+              loading={xeroPnlQ.isLoading}
+              subtitle="Xero · Bike &amp; Accessory Hire"
             />
           </div>
         )}
@@ -567,8 +659,10 @@ export default function SingleDayBikeHire() {
             <h3 className="text-sm font-medium text-gray-600">Conversions by Week &amp; Depot</h3>
             <p className="text-xs text-gray-400 mt-0.5">
               {convMode === 'rezdy'
-                ? 'Rezdy only · no depot breakdown available'
-                : 'HubSpot SD by depot · Rezdy = no depot attribution'}
+                ? 'Rezdy — estimated depot split based on product volume'
+                : convMode === 'hubspot'
+                ? 'HubSpot SD by depot'
+                : 'HubSpot SD + Rezdy (Rezdy split estimated from product volume)'}
             </p>
           </div>
           <div className="flex gap-1">
@@ -588,65 +682,32 @@ export default function SingleDayBikeHire() {
             ))}
           </div>
         </div>
-        {weeklyConvByDepot.length === 0 ? (
+        {convChartData.length === 0 ? (
           <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>
         ) : (
           <ResponsiveContainer width="100%" height={240}>
-            <ComposedChart data={weeklyConvByDepot}>
+            <ComposedChart data={convChartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fill: '#6b7280', fontSize: 11 }} />
               <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} allowDecimals={false} width={32} />
               <Tooltip
                 labelFormatter={fmtDate}
+                formatter={(v) => [typeof v === 'number' ? v.toFixed(1) : v]}
                 contentStyle={TOOLTIP_STYLE}
               />
               <Legend wrapperStyle={LEGEND_STYLE} />
-              {/* HubSpot depot bars — shown in total and hubspot modes */}
-              {convMode !== 'rezdy' && <>
-                <Bar dataKey="Nelson"        name="Nelson"        fill="#3b82f6" stackId="conv" />
-                <Bar dataKey="West Coast"    name="West Coast"    fill="#10b981" stackId="conv" />
-                <Bar dataKey="Central Otago" name="Central Otago" fill="#f59e0b" stackId="conv" />
-                <Bar dataKey="Kawarau Gorge" name="Kawarau Gorge" fill="#8b5cf6" stackId="conv" />
-                <Bar dataKey="Other"         name="Other"         fill="#d1d5db" stackId="conv" />
-              </>}
-              {/* Rezdy bar — shown in total and rezdy modes */}
-              {convMode !== 'hubspot' && (
-                <Bar dataKey="rezdy" name="Rezdy" fill={COLORS.rezdy} stackId="conv" />
+              <Bar dataKey="Nelson"        name="Nelson"        fill="#3b82f6" stackId="conv" />
+              <Bar dataKey="West Coast"    name="West Coast"    fill="#10b981" stackId="conv" />
+              <Bar dataKey="Central Otago" name="Central Otago" fill="#f59e0b" stackId="conv" />
+              <Bar dataKey="Kawarau Gorge" name="Kawarau Gorge" fill="#8b5cf6" stackId="conv" />
+              {convMode !== 'rezdy' && (
+                <Bar dataKey="Other" name="Other" fill="#d1d5db" stackId="conv" />
               )}
             </ComposedChart>
           </ResponsiveContainer>
         )}
       </div>
 
-      {/* ── Revenue breakdown ───────────────────────────────────────────────── */}
-      <div>
-        <h2 className="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-3">
-          Revenue Detail
-        </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          <KpiCard
-            label="HubSpot SD Revenue"
-            value={sdClosedQ.data?.totalRevenue ?? null}
-            format="currency"
-            loading={sdClosedQ.isLoading}
-            subtitle="Confirmed deals · HubSpot SD pipeline"
-          />
-          <KpiCard
-            label="Rezdy Revenue"
-            value={rezdyQ.data?.revenueNzd ?? null}
-            format="currency"
-            loading={rezdyQ.isLoading}
-            subtitle="GA4 purchase events"
-          />
-          <KpiCard
-            label="Bike Hire Revenue"
-            value={bikeHireRevenue}
-            format="currency"
-            loading={xeroPnlQ.isLoading}
-            subtitle="Xero · Bike &amp; Accessory Hire"
-          />
-        </div>
-      </div>
 
     </div>
   );

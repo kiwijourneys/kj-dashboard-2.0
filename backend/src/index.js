@@ -21,6 +21,7 @@ app.use('/api/alerts',     require('./routes/alerts'));
 app.use('/api/xero',       require('./routes/xero'));
 app.use('/api/webhooks',   require('./routes/webhooks'));
 app.use('/api/marketing',  require('./routes/marketing'));
+app.use('/api/rezdy',      require('./routes/rezdy'));
 
 // Health check + metadata
 app.get('/api/health', (req, res) => {

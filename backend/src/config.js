@@ -79,6 +79,10 @@ const config = {
     refreshToken: process.env.XERO_REFRESH_TOKEN,
   },
 
+  rezdy: {
+    apiKey: process.env.REZDY_API_KEY,
+  },
+
   fxRateUsdToNzd: parseFloat(process.env.FX_RATE_USD_TO_NZD || '0.57'),
 
   // Region config
