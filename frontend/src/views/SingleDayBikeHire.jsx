@@ -103,6 +103,9 @@ export default function SingleDayBikeHire() {
   // Shared depot filter — applies to both charts' line series
   const [depot, setDepot] = React.useState('All');
 
+  // Conversions by depot chart mode
+  const [convMode, setConvMode] = React.useState('total'); // 'total' | 'hubspot' | 'rezdy'
+
   // Per-chart line toggle state (Set of hidden dataKeys)
   const [hiddenTop,    setHiddenTop]    = React.useState(new Set());
   const [hiddenBottom, setHiddenBottom] = React.useState(new Set());
@@ -209,18 +212,37 @@ export default function SingleDayBikeHire() {
     return Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
   }, [gDailyQ.data, mDailyQ.data, sdLeadsQ.data, sdClosedQ.data, rezdyQ.data, depot]);
 
-  // ── 4-week rolling CVR — add as extra field on weeklyChartData rows ──────────
+  // ── 4-week rolling CVR (cohort-based, deal-ID matched) ──────────────────────
+  // For each week, count enquiries created that week. Of those deal IDs, how many
+  // appear in the closed deals set? Rolling 4-week window of cohort sums.
+  // This keeps CVR ≤ 100% and avoids the closedate/createdate mismatch.
   const weeklyChartDataWithCvr = React.useMemo(() => {
+    const closedIds = new Set((sdClosedQ.data?.deals || []).map(d => d.id));
+
+    // Map each week → array of enquiry deal IDs created that week
+    const enqIdsByWeek = {};
+    for (const d of sdLeadsQ.data?.deals || []) {
+      const date = d.createdate?.split('T')[0];
+      if (!date) continue;
+      const wk = weekStart(date);
+      if (!enqIdsByWeek[wk]) enqIdsByWeek[wk] = [];
+      enqIdsByWeek[wk].push(d.id);
+    }
+
     return weeklyChartData.map((row, i) => {
-      const window = weeklyChartData.slice(Math.max(0, i - 3), i + 1);
-      const totalEnq  = window.reduce((s, r) => s + (r.sdEnquiries  || 0), 0);
-      const totalConv = window.reduce((s, r) => s + (r.hsConversions || 0), 0);
+      const win = weeklyChartData.slice(Math.max(0, i - 3), i + 1);
+      let totalEnq = 0, totalConverted = 0;
+      for (const wkRow of win) {
+        const ids = enqIdsByWeek[wkRow.date] || [];
+        totalEnq      += ids.length;
+        totalConverted += ids.filter(id => closedIds.has(id)).length;
+      }
       return {
         ...row,
-        cvr: totalEnq > 0 ? (totalConv / totalEnq) * 100 : null,
+        cvr: totalEnq > 0 ? (totalConverted / totalEnq) * 100 : null,
       };
     });
-  }, [weeklyChartData]);
+  }, [weeklyChartData, sdLeadsQ.data, sdClosedQ.data]);
 
   // ── Weekly SD-tagged spend chart data (bottom chart) ─────────────────────────
   const weeklyTrendData = React.useMemo(() => {
@@ -260,6 +282,41 @@ export default function SingleDayBikeHire() {
 
     return Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
   }, [gTourTypeQ.data, mTourTypeQ.data, sdLeadsQ.data, sdClosedQ.data, rezdyQ.data, depot]);
+
+  // ── Weekly conversions by depot (stacked) ────────────────────────────────────
+  const weeklyConvByDepot = React.useMemo(() => {
+    const byWeek = {};
+    const ensure = wk => {
+      if (!byWeek[wk]) byWeek[wk] = {
+        date: wk,
+        Nelson: 0, 'West Coast': 0, 'Central Otago': 0, 'Kawarau Gorge': 0,
+        Other: 0, rezdy: 0,
+      };
+    };
+
+    // HubSpot SD conversions — bucketed by depot
+    for (const d of sdClosedQ.data?.deals || []) {
+      const date = (d.closedate || d.createdate)?.split('T')[0];
+      if (!date) continue;
+      const wk = weekStart(date);
+      ensure(wk);
+      const depots = (d.regions || []).filter(r => DEPOTS.includes(r));
+      if (depots.length === 0) {
+        byWeek[wk].Other++;
+      } else {
+        for (const dep of depots) byWeek[wk][dep]++;
+      }
+    }
+
+    // Rezdy — no depot info, always total
+    for (const r of rezdyQ.data?.daily || []) {
+      const wk = weekStart(r.date);
+      ensure(wk);
+      byWeek[wk].rezdy += r.conversions || 0;
+    }
+
+    return Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
+  }, [sdClosedQ.data, rezdyQ.data]);
 
   const LEGEND_STYLE = { fontSize: 12, color: '#6b7280', cursor: 'pointer' };
   const TOOLTIP_STYLE = { background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 };
@@ -498,6 +555,64 @@ export default function SingleDayBikeHire() {
               <Bar yAxisId="left" dataKey="google" name="Google Ads" fill={COLORS.google} stackId="spend" />
               <Bar yAxisId="left" dataKey="meta"   name="Meta Ads"   fill={COLORS.meta}   stackId="spend" />
               <Line yAxisId="right" type="monotone" dataKey="totalConv" name="Total Conversions" stroke="#0ea5e9" dot={false} strokeWidth={2} connectNulls />
+            </ComposedChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* ── Conversions by week by depot ───────────────────────────────────── */}
+      <div className="card">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-sm font-medium text-gray-600">Conversions by Week &amp; Depot</h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {convMode === 'rezdy'
+                ? 'Rezdy only · no depot breakdown available'
+                : 'HubSpot SD by depot · Rezdy = no depot attribution'}
+            </p>
+          </div>
+          <div className="flex gap-1">
+            {[['total','Total'],['hubspot','HubSpot'],['rezdy','Rezdy']].map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => setConvMode(val)}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors border ${
+                  convMode === val
+                    ? 'text-white border-transparent'
+                    : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                }`}
+                style={convMode === val ? { backgroundColor: '#99ca3c', borderColor: '#99ca3c' } : {}}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {weeklyConvByDepot.length === 0 ? (
+          <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={240}>
+            <ComposedChart data={weeklyConvByDepot}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fill: '#6b7280', fontSize: 11 }} />
+              <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} allowDecimals={false} width={32} />
+              <Tooltip
+                labelFormatter={fmtDate}
+                contentStyle={TOOLTIP_STYLE}
+              />
+              <Legend wrapperStyle={LEGEND_STYLE} />
+              {/* HubSpot depot bars — shown in total and hubspot modes */}
+              {convMode !== 'rezdy' && <>
+                <Bar dataKey="Nelson"        name="Nelson"        fill="#3b82f6" stackId="conv" />
+                <Bar dataKey="West Coast"    name="West Coast"    fill="#10b981" stackId="conv" />
+                <Bar dataKey="Central Otago" name="Central Otago" fill="#f59e0b" stackId="conv" />
+                <Bar dataKey="Kawarau Gorge" name="Kawarau Gorge" fill="#8b5cf6" stackId="conv" />
+                <Bar dataKey="Other"         name="Other"         fill="#d1d5db" stackId="conv" />
+              </>}
+              {/* Rezdy bar — shown in total and rezdy modes */}
+              {convMode !== 'hubspot' && (
+                <Bar dataKey="rezdy" name="Rezdy" fill={COLORS.rezdy} stackId="conv" />
+              )}
             </ComposedChart>
           </ResponsiveContainer>
         )}
