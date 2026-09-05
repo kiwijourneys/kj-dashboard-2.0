@@ -157,6 +157,29 @@ export default function SingleDayBikeHire() {
   const costPerConversion = sdTaggedSpend !== null && sdConversionsForCpc > 0
     ? sdTaggedSpend / sdConversionsForCpc : null;
 
+  // ── Rolling 14-day enquiry → conversion rate (HubSpot SD) ───────────────────
+  const rolling14Rate = React.useMemo(() => {
+    const endDate = queryParams.endDate
+      ? new Date(queryParams.endDate + 'T12:00:00Z')
+      : new Date();
+    const cutoff = new Date(endDate);
+    cutoff.setUTCDate(cutoff.getUTCDate() - 14);
+
+    const leads14 = (sdLeadsQ.data?.deals || []).filter(d => {
+      const dt = d.createdate ? new Date(d.createdate) : null;
+      return dt && dt >= cutoff && dt <= endDate;
+    }).length;
+
+    const closed14 = (sdClosedQ.data?.deals || []).filter(d => {
+      const raw = d.closedate || d.createdate;
+      const dt = raw ? new Date(raw) : null;
+      return dt && dt >= cutoff && dt <= endDate;
+    }).length;
+
+    if (leads14 === 0) return null;
+    return { rate: (closed14 / leads14) * 100, leads14, closed14 };
+  }, [sdLeadsQ.data, sdClosedQ.data, queryParams.endDate]);
+
   // ── Weekly ALL spend chart data (top chart) ──────────────────────────────────
   const weeklyChartData = React.useMemo(() => {
     const byWeek = {};
@@ -261,6 +284,20 @@ export default function SingleDayBikeHire() {
               comparisonLabel={comparisonLabel}
             />
             <KpiCard
+              label="SD Conversions — HubSpot"
+              value={sdHubspotConversions}
+              format="number"
+              loading={sdClosedQ.isLoading}
+              subtitle="Closed Won · HubSpot SD pipeline"
+            />
+            <KpiCard
+              label="SD Conversions — Rezdy"
+              value={rezdyConversions}
+              format="number"
+              loading={rezdyQ.isLoading}
+              subtitle="GA4 purchase events"
+            />
+            <KpiCard
               label="Total Conversions"
               value={totalConversions || null}
               format="number"
@@ -293,6 +330,15 @@ export default function SingleDayBikeHire() {
               format="currency"
               loading={sdClosedQ.isLoading || rezdyQ.isLoading || xeroPnlQ.isLoading}
               subtitle="HubSpot SD + Rezdy + Bike Hire (Xero)"
+            />
+            <KpiCard
+              label="Enquiry Conversion Rate"
+              value={rolling14Rate?.rate ?? null}
+              format="percent"
+              loading={sdLeadsQ.isLoading || sdClosedQ.isLoading}
+              subtitle={rolling14Rate
+                ? `Last 14 days · ${rolling14Rate.closed14} converted of ${rolling14Rate.leads14} enquiries`
+                : 'Rolling 14-day · HubSpot enquiry → Closed Won'}
             />
           </div>
         )}
