@@ -426,7 +426,7 @@ export default function SingleDayBikeHire() {
               value={rezdyConversions}
               format="number"
               loading={rezdyQ.isLoading}
-              subtitle="GA4 purchase events"
+              subtitle="Confirmed orders · Rezdy API"
             />
             <KpiCard
               label="Total Conversions"
@@ -483,7 +483,7 @@ export default function SingleDayBikeHire() {
               value={rezdyQ.data?.revenueNzd ?? null}
               format="currency"
               loading={rezdyQ.isLoading}
-              subtitle="GA4 purchase events"
+              subtitle="Confirmed orders · Rezdy API"
             />
             <KpiCard
               label="Bike Hire Revenue"

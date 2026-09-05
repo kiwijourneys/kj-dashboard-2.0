@@ -69,7 +69,7 @@ async function getBookings({ startDate, endDate } = {}) {
   const s = startDate || new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
   const e = endDate   || new Date().toISOString().slice(0, 10);
 
-  const cacheKey = buildKey(NAMESPACES.GA4 /* reuse namespace */, 'rezdyBookings', s, e);
+  const cacheKey = buildKey(NAMESPACES.REZDY, 'bookings', s, e);
   return getOrFetch(cacheKey, async () => {
     const orders = await fetchAllOrders(s, e);
 

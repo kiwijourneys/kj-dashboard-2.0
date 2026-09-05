@@ -1,0 +1,8 @@
+node_modules
+**/node_modules
+backend/node_modules
+frontend/node_modules
+node_modules_gdrive_backup
+backend/ga4-service-account.json
+.env
+**/.env

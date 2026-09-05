@@ -13,6 +13,7 @@ const NAMESPACES = {
   GOOGLE_ADS: 'gads',
   META: 'meta',
   XERO: 'xero',
+  REZDY: 'rezdy',
 };
 
 function buildKey(namespace, ...parts) {
