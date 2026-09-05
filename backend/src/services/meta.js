@@ -402,6 +402,43 @@ async function getTourTypeDepotPerformance({ startDate, endDate } = {}) {
   });
 }
 
+// ── Daily spend broken down by tour type (MD / SD / Unclassified) ─────────────
+async function getTourTypeDailySpend({ startDate, endDate } = {}) {
+  const cacheKey = buildKey(NAMESPACES.META, 'tourTypeDailySpend', startDate, endDate);
+  return getOrFetch(cacheKey, async () => {
+    const timeRange = buildTimeRange(startDate, endDate);
+    const params = {
+      ...defaultParams(),
+      fields: 'adset_name,spend,date_start',
+      level: 'adset',
+      time_increment: 1,
+      ...(timeRange ? { time_range: timeRange } : { date_preset: 'this_month' }),
+      limit: 500,
+    };
+
+    const rows = [];
+    let url = metaUrl(`act_${config.meta.adAccountId}/insights`);
+    while (url) {
+      const resp = await axios.get(url, { params: url.includes('?') ? {} : params });
+      rows.push(...(resp.data.data || []));
+      url = resp.data.paging?.next || null;
+    }
+
+    recordSync('meta');
+
+    const byDate = {};
+    for (const row of rows) {
+      const date = row.date_start;
+      if (!date) continue;
+      const tourType = adsetToTourType(row.adset_name || '');
+      if (!byDate[date]) byDate[date] = { date, MD: 0, SD: 0, Unclassified: 0 };
+      byDate[date][tourType] = (byDate[date][tourType] || 0) + toNzd(row.spend);
+    }
+
+    return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+  });
+}
+
 module.exports = {
   getSummary,
   getCampaigns,
@@ -409,5 +446,6 @@ module.exports = {
   getDepotDailySpend,
   getDepotPerformance,
   getTourTypeDepotPerformance,
+  getTourTypeDailySpend,
   toNzd,
 };

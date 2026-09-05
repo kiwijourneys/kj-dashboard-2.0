@@ -52,4 +52,14 @@ router.get('/depot-daily-spend', async (req, res, next) => {
   }
 });
 
+// GET /api/meta/tourtype-daily-spend
+router.get('/tourtype-daily-spend', async (req, res, next) => {
+  try {
+    const data = await meta.getTourTypeDailySpend(parseDateRange(req.query));
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

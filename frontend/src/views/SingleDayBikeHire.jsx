@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useFilters } from '../context/FilterContext';
 import {
   fetchSummary, fetchSdLeads, fetchSdClosed,
-  fetchGa4RezdyRev, fetchGa4BikeRental, fetchGoogleDaily, fetchMetaDaily,
+  fetchGa4RezdyRev, fetchGa4BikeRental,
+  fetchGoogleTourTypeDaily, fetchMetaTourTypeDaily,
   fetchXeroPnl, fetchMarketingPerformance,
 } from '../api';
 import KpiCard from '../components/KpiCard';
@@ -69,8 +70,8 @@ export default function SingleDayBikeHire() {
   const sdLeadsQ      = useQuery({ queryKey: ['sdLeads',       queryParams], queryFn: () => fetchSdLeads(queryParams) });
   const sdClosedQ     = useQuery({ queryKey: ['sdClosed',      queryParams], queryFn: () => fetchSdClosed(queryParams) });
   const rezdyQ        = useQuery({ queryKey: ['rezdyRev',      queryParams], queryFn: () => fetchGa4RezdyRev(queryParams) });
-  const gDailyQ       = useQuery({ queryKey: ['googleDaily',   queryParams], queryFn: () => fetchGoogleDaily(queryParams) });
-  const mDailyQ       = useQuery({ queryKey: ['metaDaily',     queryParams], queryFn: () => fetchMetaDaily(queryParams) });
+  const gTourTypeQ    = useQuery({ queryKey: ['googleTourTypeDaily', queryParams], queryFn: () => fetchGoogleTourTypeDaily(queryParams) });
+  const mTourTypeQ    = useQuery({ queryKey: ['metaTourTypeDaily',  queryParams], queryFn: () => fetchMetaTourTypeDaily(queryParams) });
   const xeroPnlQ      = useQuery({ queryKey: ['xeroPnl',       queryParams], queryFn: () => fetchXeroPnl(queryParams), retry: 1 });
   const brmQ          = useQuery({ queryKey: ['brmConv',       queryParams], queryFn: () => fetchGa4BikeRental(queryParams) });
   const marketingPerfQ = useQuery({
@@ -117,15 +118,20 @@ export default function SingleDayBikeHire() {
   const sdEnquiryByDepot  = React.useMemo(() => bucketByDepot(sdLeadsQ.data?.deals),  [sdLeadsQ.data]);
   const sdClosedByDepot   = React.useMemo(() => bucketByDepot(sdClosedQ.data?.deals), [sdClosedQ.data]);
 
-  // ── Weekly spend vs SD enquiries + Rezdy chart ───────────────────────────────
+  // ── Weekly SD-tagged spend vs SD enquiries + Rezdy chart ─────────────────────
   const weeklyChartData = React.useMemo(() => {
     const byWeek = {};
     const ensure = wk => {
       if (!byWeek[wk]) byWeek[wk] = { date: wk, google: 0, meta: 0, sdEnquiries: 0, rezdy: 0 };
     };
 
-    for (const r of toArr(gDailyQ.data)) { const wk = weekStart(r.date); ensure(wk); byWeek[wk].google += r.spendNzd || 0; }
-    for (const r of toArr(mDailyQ.data)) { const wk = weekStart(r.date); ensure(wk); byWeek[wk].meta   += r.spendNzd || 0; }
+    // SD-tagged spend only (campaigns/adsets tagged Single Day)
+    for (const r of (Array.isArray(gTourTypeQ.data) ? gTourTypeQ.data : [])) {
+      const wk = weekStart(r.date); ensure(wk); byWeek[wk].google += r.SD || 0;
+    }
+    for (const r of (Array.isArray(mTourTypeQ.data) ? mTourTypeQ.data : [])) {
+      const wk = weekStart(r.date); ensure(wk); byWeek[wk].meta += r.SD || 0;
+    }
 
     for (const d of sdLeadsQ.data?.deals || []) {
       const date = d.createdate?.split('T')[0];
@@ -142,7 +148,7 @@ export default function SingleDayBikeHire() {
     }
 
     return Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
-  }, [gDailyQ.data, mDailyQ.data, sdLeadsQ.data, rezdyQ.data]);
+  }, [gTourTypeQ.data, mTourTypeQ.data, sdLeadsQ.data, rezdyQ.data]);
 
   const depotLoading = sdLeadsQ.isLoading || sdClosedQ.isLoading || marketingPerfQ.isLoading;
 
@@ -213,7 +219,7 @@ export default function SingleDayBikeHire() {
         {/* Weekly spend vs enquiries + Rezdy */}
         <div className="card">
           <h3 className="text-sm font-medium text-gray-600 mb-4">
-            Ad Spend vs SD Enquiries &amp; Rezdy Conversions (weekly)
+            SD-Tagged Spend vs SD Enquiries &amp; Rezdy Conversions (weekly)
           </h3>
           {weeklyChartData.length === 0 ? (
             <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>

@@ -71,4 +71,14 @@ router.get('/depot-daily-spend', async (req, res, next) => {
   }
 });
 
+// GET /api/google-ads/tourtype-daily-spend
+router.get('/tourtype-daily-spend', async (req, res, next) => {
+  try {
+    const data = await gads.getTourTypeDailySpend(parseDateRange(req.query));
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

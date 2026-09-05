@@ -376,6 +376,41 @@ async function getTourTypeDepotPerformance({ startDate, endDate } = {}) {
   });
 }
 
+// ── Daily spend broken down by tour type (MD / SD / Unclassified) ─────────────
+async function getTourTypeDailySpend({ startDate, endDate } = {}) {
+  if (!isConfigured()) return { ...NOT_CONFIGURED, daily: [] };
+
+  const cacheKey = buildKey(NAMESPACES.GOOGLE_ADS, 'tourTypeDailySpend', startDate, endDate);
+  return getOrFetch(cacheKey, async () => {
+    const { s, e } = defaultDateRange(startDate, endDate);
+
+    const gaql = `
+      SELECT
+        campaign.name,
+        segments.date,
+        metrics.cost_micros
+      FROM campaign
+      WHERE segments.date BETWEEN '${s}' AND '${e}'
+        AND campaign.status != 'REMOVED'
+      ORDER BY segments.date ASC
+    `;
+
+    const rows = await gaqlSearch(gaql);
+    recordSync('google_ads');
+
+    const byDate = {};
+    for (const row of rows) {
+      const date = row.segments?.date;
+      if (!date) continue;
+      const tourType = campaignToTourType(row.campaign?.name || '');
+      if (!byDate[date]) byDate[date] = { date, MD: 0, SD: 0, Unclassified: 0 };
+      byDate[date][tourType] = (byDate[date][tourType] || 0) + Number(row.metrics?.costMicros ?? 0) / 1_000_000;
+    }
+
+    return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+  });
+}
+
 module.exports = {
   getSummary,
   getCampaigns,
@@ -383,5 +418,6 @@ module.exports = {
   getDepotDailySpend,
   getDepotPerformance,
   getTourTypeDepotPerformance,
+  getTourTypeDailySpend,
   isConfigured,
 };
