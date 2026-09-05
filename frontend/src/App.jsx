@@ -30,10 +30,12 @@ import CampaignDetail     from './views/CampaignDetail';
 import FunnelView         from './views/FunnelView';
 import OrganicSEO         from './views/OrganicSEO';
 import SlackAlertConfig   from './views/SlackAlertConfig';
+import SingleDayBikeHire  from './views/SingleDayBikeHire';
 
 const NAV = [
   { path: '/pulse',       label: 'Pulse Check' },
   { path: '/sales',       label: 'Marketing' },
+  { path: '/singleday',   label: 'Single Day & Bike Hire' },
   { path: '/attribution', label: 'Marketing Attribution' },
   { path: '/funnel',      label: 'Sales Pipeline' },
   { path: '/channels',    label: 'Paid Channels' },
@@ -83,6 +85,7 @@ export default function App() {
                 <Route path="/sales"     element={<SalesMarketing />} />
                 <Route path="/attribution" element={<MarketingAttribution />} />
                 <Route path="/summary"   element={<Navigate to="/pulse" replace />} />
+                <Route path="/singleday" element={<SingleDayBikeHire />} />
                 <Route path="/channels"  element={<PaidChannels />} />
                 <Route path="/campaigns" element={<CampaignDetail />} />
                 <Route path="/funnel"    element={<FunnelView />} />

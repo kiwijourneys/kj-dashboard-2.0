@@ -146,6 +146,8 @@ async function getMarketingPerformance({ startDate, endDate } = {}) {
     period: { startDate, endDate },
     depots: ALL_DEPOTS,
     costPerEnquiry,
+    sdTaggedSpendNzd: tourTypeSpend('all', 'SD'),
+    mdTaggedSpendNzd: tourTypeSpend('all', 'MD'),
     attributedPerformance,
     leadQuality,
     pipelineHealth,
