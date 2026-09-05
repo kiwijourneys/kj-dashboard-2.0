@@ -125,7 +125,9 @@ export default function SingleDayBikeHire() {
   const summaryQ      = useQuery({ queryKey: ['summary',       queryParams], queryFn: () => fetchSummary(queryParams) });
   const sdLeadsQ      = useQuery({ queryKey: ['sdLeads',       queryParams], queryFn: () => fetchSdLeads(queryParams) });
   const sdClosedQ     = useQuery({ queryKey: ['sdClosed',      queryParams], queryFn: () => fetchSdClosed(queryParams) });
-  const rezdyQ        = useQuery({ queryKey: ['rezdyBookings',  queryParams], queryFn: () => fetchRezdyBookings(queryParams) });
+  // Rezdy: always fetch the full dataset (last ~400 days by creation date).
+  // Period-specific numbers are computed below by filtering the daily array.
+  const rezdyQ        = useQuery({ queryKey: ['rezdyBookings'], queryFn: () => fetchRezdyBookings() });
   const gTourTypeQ    = useQuery({ queryKey: ['googleTourTypeDaily', queryParams], queryFn: () => fetchGoogleTourTypeDaily(queryParams) });
   const mTourTypeQ    = useQuery({ queryKey: ['metaTourTypeDaily',  queryParams], queryFn: () => fetchMetaTourTypeDaily(queryParams) });
   const gDailyQ       = useQuery({ queryKey: ['googleDaily',         queryParams], queryFn: () => fetchGoogleDaily(queryParams) });
@@ -164,14 +166,31 @@ export default function SingleDayBikeHire() {
   function kv(key) { return summaryQ.data?.kpis?.[key]; }
   const mp = marketingPerfQ.data;
 
+  // ── Rezdy period-filtered stats ──────────────────────────────────────────────
+  // The backend returns ALL bookings by creation date (~400 days). Filter here
+  // to the selected period so KPI cards match the global date selector.
+  const rezdyPeriodStats = React.useMemo(() => {
+    const daily = rezdyQ.data?.daily || [];
+    const s = queryParams.startDate;
+    const e = queryParams.endDate;
+    if (!s || !e || !daily.length) {
+      return { conversions: rezdyQ.data ? 0 : null, revenueNzd: 0 };
+    }
+    const filtered = daily.filter(d => d.date >= s && d.date <= e);
+    return {
+      conversions: filtered.reduce((acc, d) => acc + d.conversions, 0),
+      revenueNzd:  filtered.reduce((acc, d) => acc + d.revenueNzd, 0),
+    };
+  }, [rezdyQ.data, queryParams.startDate, queryParams.endDate]);
+
   // ── KPIs ─────────────────────────────────────────────────────────────────────
   const sdHubspotConversions = sdClosedQ.data?.total ?? null;
-  const rezdyConversions     = rezdyQ.data?.total ?? null;
+  const rezdyConversions     = rezdyQ.isLoading ? null : (rezdyPeriodStats.conversions ?? null);
   const bikeHireConversions  = brmQ.data?.total ?? null;
   const totalConversions     = (sdHubspotConversions ?? 0) + (rezdyConversions ?? 0) + (bikeHireConversions ?? 0);
 
   const sdHubspotRevenue = sdClosedQ.data?.totalRevenue ?? 0;
-  const rezdyRevenue     = rezdyQ.data?.revenueNzd ?? 0;
+  const rezdyRevenue     = rezdyPeriodStats.revenueNzd ?? 0;
   const bikeHireRevenue  = (() => {
     const accs = xeroPnlQ.data?.incomeAccounts || [];
     return accs.filter(a => a.name.toLowerCase().includes('bike')).reduce((s, a) => s + a.value, 0) || null;
