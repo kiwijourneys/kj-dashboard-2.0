@@ -92,6 +92,8 @@ export default function SingleDayBikeHire() {
 
   function kv(key) { return summaryQ.data?.kpis?.[key]; }
 
+  const mp = marketingPerfQ.data;
+
   // ── Derived KPI values ───────────────────────────────────────────────────────
   const sdHubspotConversions  = sdClosedQ.data?.total ?? null;
   const rezdyConversions      = rezdyQ.data?.total ?? null;
@@ -114,7 +116,6 @@ export default function SingleDayBikeHire() {
   // ── Depot breakdown ──────────────────────────────────────────────────────────
   const sdEnquiryByDepot  = React.useMemo(() => bucketByDepot(sdLeadsQ.data?.deals),  [sdLeadsQ.data]);
   const sdClosedByDepot   = React.useMemo(() => bucketByDepot(sdClosedQ.data?.deals), [sdClosedQ.data]);
-  const mp = marketingPerfQ.data;
 
   // ── Weekly spend vs SD enquiries + Rezdy chart ───────────────────────────────
   const weeklyChartData = React.useMemo(() => {
