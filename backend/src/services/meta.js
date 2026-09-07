@@ -28,19 +28,17 @@ function adsetToDepot(name) {
   return null;
 }
 
-// ── Adset → tour type mapping ─────────────────────────────────────────────────
-// Meta's naming taxonomy only explicitly tags the exception: "One Day Tours"
-// (single-day/bike-hire). Everything else — Summer/Autumn/Spring Tour campaigns,
-// 90-Day Remarketing — targets Kiwi Journeys' core multi-day tour product, so
-// is classified MD by default rather than left unclassified.
-const ADSET_TOUR_TYPE_RULES = [
-  { pattern: /one[\s_-]*day|bike[\s_-]*hire/i, type: 'SD' },
-];
+// ── Tour type classification ──────────────────────────────────────────────────
+// SD if: campaign name contains "SD" (e.g. "NZ | SD | Prospecting | School holidays"),
+//        OR adset name matches legacy "one day / bike hire" patterns.
+// Everything else defaults to MD (multi-day is the core product).
+const ADSET_SD_PATTERNS = /one[\s_-]*day|bike[\s_-]*hire/i;
 
-function adsetToTourType(name) {
-  for (const { pattern, type } of ADSET_TOUR_TYPE_RULES) {
-    if (pattern.test(name)) return type;
-  }
+function adsetToTourType(adsetName, campaignName) {
+  // Campaign-name rule: any campaign with "SD" as a word/segment is single-day
+  if (/\bSD\b/.test(campaignName || '')) return 'SD';
+  // Legacy adset-name rule
+  if (ADSET_SD_PATTERNS.test(adsetName || '')) return 'SD';
   return 'MD';
 }
 
@@ -357,7 +355,7 @@ async function getTourTypeDepotPerformance({ startDate, endDate } = {}) {
     const timeRange = buildTimeRange(startDate, endDate);
     const params = {
       ...defaultParams(),
-      fields: 'adset_name,spend,impressions,clicks,actions',
+      fields: 'campaign_name,adset_name,spend,impressions,clicks,actions',
       level: 'adset',
       ...(timeRange ? { time_range: timeRange } : { date_preset: 'this_month' }),
       limit: 500,
@@ -383,7 +381,7 @@ async function getTourTypeDepotPerformance({ startDate, endDate } = {}) {
 
     for (const row of rows) {
       const depot = adsetToDepot(row.adset_name || '') || 'General';
-      const tourType = adsetToTourType(row.adset_name || '');
+      const tourType = adsetToTourType(row.adset_name || '', row.campaign_name || '');
       const bucket = byDepot[depot]?.[tourType];
       if (!bucket) continue;
 
@@ -409,7 +407,7 @@ async function getTourTypeDailySpend({ startDate, endDate } = {}) {
     const timeRange = buildTimeRange(startDate, endDate);
     const params = {
       ...defaultParams(),
-      fields: 'adset_name,spend,date_start',
+      fields: 'campaign_name,adset_name,spend,date_start',
       level: 'adset',
       time_increment: 1,
       ...(timeRange ? { time_range: timeRange } : { date_preset: 'this_month' }),
@@ -430,7 +428,7 @@ async function getTourTypeDailySpend({ startDate, endDate } = {}) {
     for (const row of rows) {
       const date = row.date_start;
       if (!date) continue;
-      const tourType = adsetToTourType(row.adset_name || '');
+      const tourType = adsetToTourType(row.adset_name || '', row.campaign_name || '');
       if (!byDate[date]) byDate[date] = { date, MD: 0, SD: 0, Unclassified: 0 };
       byDate[date][tourType] = (byDate[date][tourType] || 0) + toNzd(row.spend);
     }
