@@ -411,6 +411,62 @@ async function getTourTypeDailySpend({ startDate, endDate } = {}) {
   });
 }
 
+// ── Depot × Country matrix (spend + conversions) ─────────────────────────────
+//
+// Google Ads campaigns follow "SEM - NZ - Cromwell - Multi Day".
+// Country is the second " - " segment.
+
+const GOOGLE_KNOWN_COUNTRIES = ['NZ', 'AUS', 'AU', 'UK', 'US', 'CA'];
+// Normalise AU → AUS to match Meta convention
+const COUNTRY_ALIASES = { AU: 'AUS' };
+
+function googleCampaignToCountry(name) {
+  if (!name) return 'Other';
+  const parts = name.split(' - ');
+  if (parts.length < 2) return 'Other';
+  const raw = parts[1].trim().toUpperCase();
+  const c = COUNTRY_ALIASES[raw] || raw;
+  return GOOGLE_KNOWN_COUNTRIES.includes(raw) ? c : 'Other';
+}
+
+/**
+ * Returns spend and conversion counts broken down by depot × country.
+ * Shape: { countries: string[], depots: string[], matrix: { [depot]: { [country]: { spendNzd, conversions, cpl } } } }
+ */
+async function getDepotCountryMatrix({ startDate, endDate } = {}) {
+  if (!isConfigured()) return { countries: [], depots: ALL_DEPOTS, matrix: {} };
+
+  const cacheKey = buildKey(NAMESPACES.GOOGLE_ADS, 'depotCountryMatrix', startDate, endDate);
+  return getOrFetch(cacheKey, async () => {
+    const allCampaigns = await getCampaigns({ startDate, endDate });
+    const list = Array.isArray(allCampaigns) ? allCampaigns : [];
+
+    const matrix = {};
+    const countrySet = new Set();
+    for (const d of ALL_DEPOTS) matrix[d] = {};
+
+    for (const c of list) {
+      const depot = campaignToDepot(c.name) || 'General';
+      const country = googleCampaignToCountry(c.name);
+      countrySet.add(country);
+
+      if (!matrix[depot][country]) matrix[depot][country] = { spendNzd: 0, conversions: 0 };
+      matrix[depot][country].spendNzd    += c.spendNzd    || 0;
+      matrix[depot][country].conversions += c.conversions || 0;
+    }
+
+    const countries = Array.from(countrySet).sort();
+    for (const depot of ALL_DEPOTS) {
+      for (const country of countries) {
+        const cell = matrix[depot][country];
+        if (cell) cell.cpl = cell.conversions > 0 ? cell.spendNzd / cell.conversions : null;
+      }
+    }
+
+    return { countries, depots: ALL_DEPOTS, matrix };
+  });
+}
+
 module.exports = {
   getSummary,
   getCampaigns,
@@ -419,5 +475,6 @@ module.exports = {
   getDepotPerformance,
   getTourTypeDepotPerformance,
   getTourTypeDailySpend,
+  getDepotCountryMatrix,
   isConfigured,
 };

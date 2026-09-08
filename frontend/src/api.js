@@ -36,7 +36,8 @@ export const fetchGoogleSummary  = (params) => api.get('/google-ads/summary',   
 export const fetchGoogleCampaigns = (params) => api.get('/google-ads/campaigns', { params: toQs(params) }).then(r => r.data);
 export const fetchGoogleDaily      = (params) => api.get('/google-ads/daily-spend',       { params: toQs(params) }).then(r => r.data);
 export const fetchGoogleDepotDaily    = (params) => api.get('/google-ads/depot-daily-spend',    { params: toQs(params) }).then(r => r.data);
-export const fetchGoogleTourTypeDaily = (params) => api.get('/google-ads/tourtype-daily-spend', { params: toQs(params) }).then(r => r.data);
+export const fetchGoogleTourTypeDaily   = (params) => api.get('/google-ads/tourtype-daily-spend',   { params: toQs(params) }).then(r => r.data);
+export const fetchGoogleDepotCountry    = (params) => api.get('/google-ads/depot-country-matrix',   { params: toQs(params) }).then(r => r.data);
 
 // ── Meta ──────────────────────────────────────────────────────────────────────
 export const fetchMetaSummary    = (params) => api.get('/meta/summary',           { params: toQs(params) }).then(r => r.data);

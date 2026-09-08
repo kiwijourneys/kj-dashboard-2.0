@@ -81,4 +81,14 @@ router.get('/tourtype-daily-spend', async (req, res, next) => {
   }
 });
 
+// GET /api/google-ads/depot-country-matrix
+router.get('/depot-country-matrix', async (req, res, next) => {
+  try {
+    const data = await gads.getDepotCountryMatrix(parseDateRange(req.query));
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;
