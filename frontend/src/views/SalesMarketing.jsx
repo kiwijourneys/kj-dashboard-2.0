@@ -6,7 +6,9 @@ import {
   fetchMdLeads, fetchSdLeads, fetchMdClosed, fetchSdClosed,
   fetchMdActual, fetchSdActual, fetchGa4RezdyRev, fetchGa4BikeRental,
   fetchGoogleDepotDaily, fetchXeroPnl, fetchXeroMonthly, fetchXeroIncomeByPeriod, fetchMdBookedRevenue,
-  fetchGa4Daily, fetchMarketingPerformance, fetchMetaDepotCountry, fetchGoogleDepotCountry,
+  fetchGa4Daily, fetchMarketingPerformance,
+  fetchMetaDepotCountry, fetchGoogleDepotCountry,
+  fetchMetaCountryDaily, fetchGoogleCountryDaily,
 } from '../api';
 import KpiCard from '../components/KpiCard';
 import ErrorWidget from '../components/ErrorWidget';
@@ -72,6 +74,7 @@ function weekStart(dateStr) {
 
 export default function SalesMarketing() {
   const { queryParams } = useFilters();
+  const [countryDepotFilter, setCountryDepotFilter] = React.useState('ALL');
 
   const marketingPerfQ = useQuery({
     queryKey: ['marketingPerformance', queryParams.startDate, queryParams.endDate],
@@ -100,6 +103,8 @@ export default function SalesMarketing() {
     enabled: !!(queryParams.startDate && queryParams.endDate) });
   const metaDepotCountryQ   = useQuery({ queryKey: ['metaDepotCountry',   queryParams], queryFn: () => fetchMetaDepotCountry(queryParams),   retry: 1 });
   const googleDepotCountryQ = useQuery({ queryKey: ['googleDepotCountry', queryParams], queryFn: () => fetchGoogleDepotCountry(queryParams), retry: 1 });
+  const metaCountryDailyQ   = useQuery({ queryKey: ['metaCountryDaily',   queryParams], queryFn: () => fetchMetaCountryDaily(queryParams),   retry: 1 });
+  const googleCountryDailyQ = useQuery({ queryKey: ['googleCountryDaily', queryParams], queryFn: () => fetchGoogleCountryDaily(queryParams), retry: 1 });
 
   const kpis = summaryQ.data?.kpis;
   const sync = summaryQ.data?.syncTimestamps || {};
@@ -601,138 +606,129 @@ export default function SalesMarketing() {
           )}
         </div>
 
-        {/* $/Enquiry by Depot × Country — Google + Meta combined */}
+        {/* Enquiries & Spend by Country — weekly chart with country toggle */}
         {(() => {
-          // Merge Google Ads + Meta matrices into one combined matrix
-          // Google Ads: conversions field; Meta: leads field. Both = tracked enquiry conversions.
-          const isLoading = metaDepotCountryQ.isLoading || googleDepotCountryQ.isLoading;
-          const isError   = metaDepotCountryQ.isError   || googleDepotCountryQ.isError;
+          const isLoading = metaCountryDailyQ.isLoading || googleCountryDailyQ.isLoading;
+          const isError   = metaCountryDailyQ.isError   || googleCountryDailyQ.isError;
 
-          const merge = () => {
-            const combined = {}; // depot → country → { spendNzd, enquiries }
-            const countrySet = new Set();
-            for (const d of DEPOTS) combined[d] = {};
+          // Derive available countries from data
+          const availableCountries = React.useMemo ? (() => {
+            const s = new Set();
+            for (const r of (metaCountryDailyQ.data || []))   if (r.country !== 'Other') s.add(r.country);
+            for (const r of (googleCountryDailyQ.data || [])) if (r.country !== 'Other') s.add(r.country);
+            return ['ALL', ...Array.from(s).sort()];
+          })() : ['ALL', 'NZ', 'AUS'];
 
-            const addSource = (data, enquiryKey) => {
-              if (!data?.matrix) return;
-              for (const depot of (data.depots || [])) {
-                for (const [country, cell] of Object.entries(data.matrix[depot] || {})) {
-                  if (!cell) continue;
-                  countrySet.add(country);
-                  if (!combined[depot][country]) combined[depot][country] = { spendNzd: 0, enquiries: 0 };
-                  combined[depot][country].spendNzd  += cell.spendNzd  || 0;
-                  combined[depot][country].enquiries += cell[enquiryKey] || 0;
-                }
+          // Build weekly chart data for selected country
+          const buildChart = () => {
+            const byWeek = {};
+            const ensure = wk => {
+              if (!byWeek[wk]) {
+                byWeek[wk] = { date: wk, spendNzd: 0, enqMD: 0, enqTotal: 0 };
+                for (const d of DEPOTS) byWeek[wk][d] = 0;
               }
             };
 
-            addSource(metaDepotCountryQ.data,   'leads');
-            addSource(googleDepotCountryQ.data,  'conversions');
-
-            const countries = Array.from(countrySet).sort((a, b) => {
-              // Put 'Other' last
-              if (a === 'Other') return 1;
-              if (b === 'Other') return -1;
-              return a.localeCompare(b);
-            });
-
-            // Compute cpl per cell
-            for (const depot of DEPOTS) {
-              for (const country of countries) {
-                const cell = combined[depot][country];
-                if (cell) cell.cpl = cell.enquiries > 0 ? cell.spendNzd / cell.enquiries : null;
+            const addRows = (rows, enquiryKey) => {
+              for (const r of (rows || [])) {
+                if (!r.date) continue;
+                if (countryDepotFilter !== 'ALL' && r.country !== countryDepotFilter) continue;
+                const wk = weekStart(r.date);
+                ensure(wk);
+                byWeek[wk].spendNzd += r.spendNzd || 0;
+                const enq = r[enquiryKey] || 0;
+                byWeek[wk].enqTotal += enq;
+                if (r.tourType === 'MD') byWeek[wk].enqMD += enq;
+                const depot = DEPOTS.includes(r.depot) ? r.depot : 'General';
+                if (byWeek[wk][depot] !== undefined) byWeek[wk][depot] += enq;
               }
+            };
+
+            addRows(metaCountryDailyQ.data,   'leads');
+            addRows(googleCountryDailyQ.data,  'conversions');
+
+            // Fill date range
+            if (queryParams.startDate && queryParams.endDate) {
+              let cur = new Date(queryParams.startDate + 'T12:00:00Z');
+              const end = new Date(queryParams.endDate + 'T12:00:00Z');
+              while (cur <= end) { ensure(weekStart(cur.toISOString().split('T')[0])); cur.setUTCDate(cur.getUTCDate() + 7); }
             }
 
-            return { countries, matrix: combined };
+            return Object.values(byWeek).sort((a, b) => a.date.localeCompare(b.date));
           };
 
-          const merged = (!isLoading && !isError) ? merge() : null;
-          const activeDepots = merged
-            ? DEPOTS.filter(d => merged.countries.some(c => (merged.matrix[d]?.[c]?.spendNzd || 0) > 0))
-            : [];
+          const chartData = (!isLoading && !isError) ? buildChart() : [];
+          const totalSpend  = chartData.reduce((s, r) => s + r.spendNzd, 0);
+          const totalEnqMD  = chartData.reduce((s, r) => s + r.enqMD,    0);
+          const totalEnqAll = chartData.reduce((s, r) => s + r.enqTotal,  0);
+          const cplMD = totalEnqMD > 0 ? totalSpend / totalEnqMD : null;
+
+          const countryLabel = countryDepotFilter === 'ALL' ? 'All countries' : countryDepotFilter;
 
           return (
             <div className="card lg:col-span-2">
-              <h3 className="text-sm font-medium text-gray-600 mb-1">$/Enquiry by Depot &amp; Country</h3>
-              <p className="text-xs text-gray-400 mb-3">
-                Google + Meta · country from campaign name · Google = conversions · Meta = lead form/pixel
-              </p>
-              {isLoading ? (
-                <div className="h-32 flex items-center justify-center text-gray-400 text-sm">Loading…</div>
-              ) : isError ? (
-                <div className="h-32 flex items-center justify-center text-red-400 text-sm">Failed to load</div>
-              ) : !merged?.countries?.length || activeDepots.length === 0 ? (
-                <div className="h-32 flex items-center justify-center text-gray-400 text-sm">No data</div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs border-collapse">
-                    <thead>
-                      <tr>
-                        <th className="text-left py-1.5 px-2 font-medium text-gray-500 border-b border-gray-200">Depot</th>
-                        {merged.countries.map(c => (
-                          <th key={c} className="text-center py-1.5 px-2 font-medium text-gray-500 border-b border-gray-200" colSpan={2}>{c}</th>
-                        ))}
-                        <th className="text-center py-1.5 px-2 font-medium text-gray-500 border-b border-gray-200" colSpan={2}>Total</th>
-                      </tr>
-                      <tr>
-                        <th className="py-1 px-2 border-b border-gray-100"></th>
-                        {merged.countries.map(c => (
-                          <React.Fragment key={c}>
-                            <th className="py-1 px-1 text-gray-400 font-normal border-b border-gray-100 text-center">Enq</th>
-                            <th className="py-1 px-1 text-gray-400 font-normal border-b border-gray-100 text-center">$/Enq</th>
-                          </React.Fragment>
-                        ))}
-                        <th className="py-1 px-1 text-gray-400 font-normal border-b border-gray-100 text-center">Enq</th>
-                        <th className="py-1 px-1 text-gray-400 font-normal border-b border-gray-100 text-center">$/Enq</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {activeDepots.map((depot, i) => {
-                        const rowEnq   = merged.countries.reduce((s, c) => s + (merged.matrix[depot]?.[c]?.enquiries || 0), 0);
-                        const rowSpend = merged.countries.reduce((s, c) => s + (merged.matrix[depot]?.[c]?.spendNzd  || 0), 0);
-                        const rowCpl   = rowEnq > 0 ? rowSpend / rowEnq : null;
-                        return (
-                          <tr key={depot} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                            <td className="py-1.5 px-2 font-medium" style={{ color: DEPOT_COLORS[depot] }}>{depot}</td>
-                            {merged.countries.map(c => {
-                              const cell = merged.matrix[depot]?.[c];
-                              return (
-                                <React.Fragment key={c}>
-                                  <td className="py-1.5 px-1 text-center text-gray-700">{cell?.enquiries || 0}</td>
-                                  <td className="py-1.5 px-1 text-center text-gray-500">{cell?.cpl != null ? fmtNzd(cell.cpl) : '—'}</td>
-                                </React.Fragment>
-                              );
-                            })}
-                            <td className="py-1.5 px-1 text-center font-medium text-gray-700">{rowEnq}</td>
-                            <td className="py-1.5 px-1 text-center font-medium text-gray-600">{rowCpl != null ? fmtNzd(rowCpl) : '—'}</td>
-                          </tr>
-                        );
-                      })}
-                      {(() => {
-                        const colTotals = merged.countries.map(c => ({
-                          enquiries: activeDepots.reduce((s, d) => s + (merged.matrix[d]?.[c]?.enquiries || 0), 0),
-                          spendNzd:  activeDepots.reduce((s, d) => s + (merged.matrix[d]?.[c]?.spendNzd  || 0), 0),
-                        }));
-                        const grandEnq   = colTotals.reduce((s, t) => s + t.enquiries, 0);
-                        const grandSpend = colTotals.reduce((s, t) => s + t.spendNzd,  0);
-                        return (
-                          <tr className="border-t border-gray-200 bg-gray-100 font-semibold">
-                            <td className="py-1.5 px-2 text-gray-700">Total</td>
-                            {colTotals.map((t, idx) => (
-                              <React.Fragment key={idx}>
-                                <td className="py-1.5 px-1 text-center text-gray-700">{t.enquiries}</td>
-                                <td className="py-1.5 px-1 text-center text-gray-600">{t.enquiries > 0 ? fmtNzd(t.spendNzd / t.enquiries) : '—'}</td>
-                              </React.Fragment>
-                            ))}
-                            <td className="py-1.5 px-1 text-center text-gray-700">{grandEnq}</td>
-                            <td className="py-1.5 px-1 text-center text-gray-600">{grandEnq > 0 ? fmtNzd(grandSpend / grandEnq) : '—'}</td>
-                          </tr>
-                        );
-                      })()}
-                    </tbody>
-                  </table>
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-sm font-medium text-gray-600">Enquiries &amp; Spend by Country</h3>
+                {/* Country toggle */}
+                <div className="flex gap-1">
+                  {availableCountries.map(c => (
+                    <button
+                      key={c}
+                      onClick={() => setCountryDepotFilter(c)}
+                      className={`px-2.5 py-0.5 rounded text-xs font-semibold transition-colors ${
+                        countryDepotFilter === c
+                          ? 'bg-gray-800 text-white'
+                          : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                      }`}
+                    >{c}</button>
+                  ))}
                 </div>
+              </div>
+              <p className="text-xs text-gray-400 mb-2">
+                Google + Meta · bars = enquiries by depot · line = spend · country from campaign name
+              </p>
+
+              {/* $/MD Enquiry KPI */}
+              {!isLoading && (
+                <div className="flex gap-6 mb-4 p-3 bg-gray-50 rounded-lg">
+                  <div>
+                    <div className="text-xs text-gray-400 mb-0.5">$/MD Enquiry · {countryLabel}</div>
+                    <div className="text-xl font-bold text-gray-800">{cplMD != null ? fmtNzd(cplMD) : '—'}</div>
+                    <div className="text-xs text-gray-400">MD enquiries: {totalEnqMD}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-400 mb-0.5">Total Spend · {countryLabel}</div>
+                    <div className="text-xl font-bold text-gray-800">{fmtNzd(totalSpend)}</div>
+                    <div className="text-xs text-gray-400">All enquiries: {totalEnqAll}</div>
+                  </div>
+                </div>
+              )}
+
+              {isLoading ? (
+                <div className="h-48 flex items-center justify-center text-gray-400 text-sm">Loading…</div>
+              ) : isError ? (
+                <div className="h-48 flex items-center justify-center text-red-400 text-sm">Failed to load</div>
+              ) : chartData.length === 0 ? (
+                <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>
+              ) : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <ComposedChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fill: '#6b7280', fontSize: 11 }} />
+                    <YAxis yAxisId="left" allowDecimals={false} tick={{ fill: '#6b7280', fontSize: 11 }} label={{ value: 'Enquiries', angle: -90, position: 'insideLeft', fill: '#6b7280', fontSize: 11 }} />
+                    <YAxis yAxisId="right" orientation="right" tickFormatter={v => v >= 1000 ? `$${(v/1000).toFixed(1)}k` : `$${v.toFixed(0)}`} tick={{ fill: '#6b7280', fontSize: 11 }} label={{ value: 'Spend (NZD)', angle: 90, position: 'insideRight', fill: '#6b7280', fontSize: 11 }} />
+                    <Tooltip
+                      labelFormatter={fmtDate}
+                      formatter={(v, name) => name === 'Spend' ? [fmtNzd(v), name] : [v, name]}
+                      contentStyle={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 12, color: '#6b7280' }} />
+                    {DEPOTS.map(depot => (
+                      <Bar key={depot} yAxisId="left" dataKey={depot} stackId="enq" fill={DEPOT_COLORS[depot]} name={depot} />
+                    ))}
+                    <Line yAxisId="right" type="monotone" dataKey="spendNzd" name="Spend" stroke="#6366f1" strokeWidth={2} dot={false} />
+                  </ComposedChart>
+                </ResponsiveContainer>
               )}
             </div>
           );

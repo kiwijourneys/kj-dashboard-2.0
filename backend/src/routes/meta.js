@@ -62,6 +62,16 @@ router.get('/tourtype-daily-spend', async (req, res, next) => {
   }
 });
 
+// GET /api/meta/country-daily
+router.get('/country-daily', async (req, res, next) => {
+  try {
+    const data = await meta.getCountryDailyPerformance(parseDateRange(req.query));
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/meta/depot-country-matrix
 // Returns Meta spend + leads broken down by depot × country (campaign name prefix).
 router.get('/depot-country-matrix', async (req, res, next) => {

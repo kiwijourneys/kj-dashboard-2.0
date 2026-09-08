@@ -81,6 +81,16 @@ router.get('/tourtype-daily-spend', async (req, res, next) => {
   }
 });
 
+// GET /api/google-ads/country-daily
+router.get('/country-daily', async (req, res, next) => {
+  try {
+    const data = await gads.getCountryDailyPerformance(parseDateRange(req.query));
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/google-ads/depot-country-matrix
 router.get('/depot-country-matrix', async (req, res, next) => {
   try {

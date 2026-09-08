@@ -512,6 +512,51 @@ async function getTourTypeDailySpend({ startDate, endDate } = {}) {
   });
 }
 
+// ── Daily performance by country + depot + tour type ─────────────────────────
+//
+// Returns one row per (date, country, depot, tourType) with spend + leads.
+// Used for the country-level weekly chart.
+
+async function getCountryDailyPerformance({ startDate, endDate } = {}) {
+  const cacheKey = buildKey(NAMESPACES.META, 'countryDailyPerf', startDate, endDate);
+  return getOrFetch(cacheKey, async () => {
+    const timeRange = buildTimeRange(startDate, endDate);
+    const params = {
+      ...defaultParams(),
+      fields: 'campaign_name,adset_name,spend,actions,date_start',
+      level: 'adset',
+      time_increment: 1,
+      ...(timeRange ? { time_range: timeRange } : { date_preset: 'this_month' }),
+      limit: 500,
+    };
+
+    const rows = [];
+    let url = metaUrl(`act_${config.meta.adAccountId}/insights`);
+    while (url) {
+      const resp = await axios.get(url, { params: url.includes('?') ? {} : params });
+      rows.push(...(resp.data.data || []));
+      url = resp.data.paging?.next || null;
+    }
+
+    recordSync('meta');
+
+    return rows.map(row => {
+      const actions = row.actions || [];
+      const leads = actions
+        .filter(a => ['lead', 'offsite_conversion.fb_pixel_lead', 'onsite_conversion.lead_grouped'].includes(a.action_type))
+        .reduce((sum, a) => sum + parseInt(a.value || 0, 10), 0);
+      return {
+        date:     row.date_start,
+        country:  campaignToCountry(row.campaign_name),
+        depot:    adsetToDepot(row.adset_name || '') || 'General',
+        tourType: adsetToTourType(row.adset_name || '', row.campaign_name || ''),
+        spendNzd: toNzd(row.spend),
+        leads,
+      };
+    }).filter(r => r.date);
+  });
+}
+
 module.exports = {
   getSummary,
   getCampaigns,
@@ -521,5 +566,6 @@ module.exports = {
   getTourTypeDepotPerformance,
   getTourTypeDailySpend,
   getDepotCountryMatrix,
+  getCountryDailyPerformance,
   toNzd,
 };

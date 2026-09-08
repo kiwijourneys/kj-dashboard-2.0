@@ -467,6 +467,43 @@ async function getDepotCountryMatrix({ startDate, endDate } = {}) {
   });
 }
 
+// ── Daily performance by country + depot + tour type ─────────────────────────
+
+async function getCountryDailyPerformance({ startDate, endDate } = {}) {
+  if (!isConfigured()) return [];
+
+  const cacheKey = buildKey(NAMESPACES.GOOGLE_ADS, 'countryDailyPerf', startDate, endDate);
+  return getOrFetch(cacheKey, async () => {
+    const { s, e } = defaultDateRange(startDate, endDate);
+
+    const gaql = `
+      SELECT
+        campaign.name,
+        segments.date,
+        metrics.cost_micros,
+        metrics.conversions
+      FROM campaign
+      WHERE segments.date BETWEEN '${s}' AND '${e}'
+        AND campaign.status != 'REMOVED'
+      ORDER BY segments.date ASC
+    `;
+
+    const rows = await gaqlSearch(gaql);
+    recordSync('google_ads');
+
+    const NZD_PER_MICROS = config.fxRateUsdToNzd / 1_000_000;
+
+    return rows.map(row => ({
+      date:        row.segments?.date,
+      country:     googleCampaignToCountry(row.campaign?.name || ''),
+      depot:       campaignToDepot(row.campaign?.name || '') || 'General',
+      tourType:    campaignToTourType(row.campaign?.name || ''),
+      spendNzd:    Number(row.metrics?.costMicros ?? 0) * NZD_PER_MICROS,
+      conversions: Number(row.metrics?.conversions ?? 0),
+    })).filter(r => r.date);
+  });
+}
+
 module.exports = {
   getSummary,
   getCampaigns,
@@ -476,5 +513,6 @@ module.exports = {
   getTourTypeDepotPerformance,
   getTourTypeDailySpend,
   getDepotCountryMatrix,
+  getCountryDailyPerformance,
   isConfigured,
 };

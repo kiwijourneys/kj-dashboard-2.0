@@ -38,6 +38,7 @@ export const fetchGoogleDaily      = (params) => api.get('/google-ads/daily-spen
 export const fetchGoogleDepotDaily    = (params) => api.get('/google-ads/depot-daily-spend',    { params: toQs(params) }).then(r => r.data);
 export const fetchGoogleTourTypeDaily   = (params) => api.get('/google-ads/tourtype-daily-spend',   { params: toQs(params) }).then(r => r.data);
 export const fetchGoogleDepotCountry    = (params) => api.get('/google-ads/depot-country-matrix',   { params: toQs(params) }).then(r => r.data);
+export const fetchGoogleCountryDaily   = (params) => api.get('/google-ads/country-daily',           { params: toQs(params) }).then(r => r.data);
 
 // ── Meta ──────────────────────────────────────────────────────────────────────
 export const fetchMetaSummary    = (params) => api.get('/meta/summary',           { params: toQs(params) }).then(r => r.data);
@@ -46,6 +47,7 @@ export const fetchMetaDaily      = (params) => api.get('/meta/daily-spend',     
 export const fetchMetaDepotDaily    = (params) => api.get('/meta/depot-daily-spend',    { params: toQs(params) }).then(r => r.data);
 export const fetchMetaTourTypeDaily = (params) => api.get('/meta/tourtype-daily-spend', { params: toQs(params) }).then(r => r.data);
 export const fetchMetaDepotCountry  = (params) => api.get('/meta/depot-country-matrix', { params: toQs(params) }).then(r => r.data);
+export const fetchMetaCountryDaily  = (params) => api.get('/meta/country-daily',         { params: toQs(params) }).then(r => r.data);
 
 // ── Rezdy ─────────────────────────────────────────────────────────────────────
 export const fetchRezdyBookings = (params) => api.get('/rezdy/bookings', { params: toQs(params) }).then(r => r.data);
