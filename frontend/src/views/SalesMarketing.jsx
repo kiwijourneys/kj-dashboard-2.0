@@ -548,6 +548,57 @@ export default function SalesMarketing() {
           )}
         </div>
 
+        {/* Spend by Market — weekly stacked */}
+        <div className="card lg:col-span-2">
+          <h3 className="text-sm font-medium text-gray-600 mb-1">Spend by Market (weekly)</h3>
+          <p className="text-xs text-gray-400 mb-3">Google + Meta · depot-attributed spend only</p>
+          {depotChartData.length === 0 ? (
+            <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <ComposedChart data={depotChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fill: '#6b7280', fontSize: 11 }} />
+                <YAxis tickFormatter={v => v >= 1000 ? `$${(v/1000).toFixed(1)}k` : `$${v.toFixed(0)}`} tick={{ fill: '#6b7280', fontSize: 11 }} />
+                <Tooltip
+                  labelFormatter={fmtDate}
+                  formatter={(v, name) => [fmtNzd(v), name]}
+                  contentStyle={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
+                />
+                <Legend wrapperStyle={{ fontSize: 12, color: '#6b7280' }} />
+                {DEPOTS.map(depot => (
+                  <Bar key={depot} dataKey={`${depot}_spend`} stackId="spend" fill={DEPOT_COLORS[depot]} name={depot} />
+                ))}
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Enquiries by Market — weekly stacked */}
+        <div className="card lg:col-span-2">
+          <h3 className="text-sm font-medium text-gray-600 mb-1">Enquiries by Market (weekly)</h3>
+          <p className="text-xs text-gray-400 mb-3">HubSpot MD + SD enquiries · depot-tagged deals</p>
+          {depotChartData.length === 0 ? (
+            <div className="h-48 flex items-center justify-center text-gray-400 text-sm">No data</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <ComposedChart data={depotChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fill: '#6b7280', fontSize: 11 }} />
+                <YAxis allowDecimals={false} tick={{ fill: '#6b7280', fontSize: 11 }} />
+                <Tooltip
+                  labelFormatter={fmtDate}
+                  contentStyle={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
+                />
+                <Legend wrapperStyle={{ fontSize: 12, color: '#6b7280' }} />
+                {DEPOTS.map(depot => (
+                  <Bar key={depot} dataKey={depot} stackId="leads" fill={DEPOT_COLORS[depot]} name={depot} />
+                ))}
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
         {/* Inquiries by Depot & Ad Spend */}
         <div className="card lg:col-span-2">
           <h3 className="text-sm font-medium text-gray-600 mb-4">Enquiries by Depot &amp; Ad Spend (NZD)</h3>
