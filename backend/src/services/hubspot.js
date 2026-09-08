@@ -876,6 +876,129 @@ async function getOpportunityRates({ startDate, endDate } = {}) {
   });
 }
 
+// ── Deals with country attribution ───────────────────────────────────────────
+//
+// Country is determined by:
+//   1. Associated contact's ip_country_code (set automatically by HubSpot from form-submit IP)
+//   2. Fallback: hs_analytics_source_data_1 campaign name prefix ("NZ | MD | ...")
+//   3. "Unknown" if neither is available
+//
+// Uses HubSpot batch APIs to minimise round trips:
+//   - Batch associations: up to 100 deal IDs per call
+//   - Batch contacts:     up to 100 contact IDs per call
+//
+// Returns flat array of deal summaries (one per deal) with createdate, regions, tourType, country.
+
+const COUNTRY_CODE_MAP = {
+  nz: 'NZ', au: 'AUS', gb: 'UK', uk: 'UK', us: 'US', ca: 'CA', de: 'DE', fr: 'FR',
+};
+
+function normaliseCountryCode(code) {
+  return COUNTRY_CODE_MAP[(code || '').toLowerCase()] || code?.toUpperCase() || 'Unknown';
+}
+
+function countryFromCampaign(src1) {
+  const prefix = ((src1 || '').split('|')[0] || '').trim().toLowerCase();
+  return COUNTRY_CODE_MAP[prefix] || null;
+}
+
+async function _batchGetAssociations(dealIds) {
+  // Returns { dealId → contactId } for deals that have an associated contact
+  const BATCH = 100;
+  const result = {};
+  for (let i = 0; i < dealIds.length; i += BATCH) {
+    const slice = dealIds.slice(i, i + BATCH);
+    const resp = await axios.post(
+      `${BASE}/crm/v3/associations/deals/contacts/batch/read`,
+      { inputs: slice.map(id => ({ id })) },
+      { headers: HEADERS() }
+    );
+    for (const row of resp.data.results || []) {
+      if (row.to?.length) result[row.from.id] = row.to[0].id;
+    }
+  }
+  return result;
+}
+
+async function _batchGetContactCountry(contactIds) {
+  // Returns { contactId → ip_country_code (2-letter, normalised) }
+  const BATCH = 100;
+  const result = {};
+  const unique = [...new Set(contactIds)];
+  for (let i = 0; i < unique.length; i += BATCH) {
+    const slice = unique.slice(i, i + BATCH);
+    const resp = await axios.post(
+      `${BASE}/crm/v3/objects/contacts/batch/read`,
+      { inputs: slice.map(id => ({ id })), properties: ['ip_country_code'] },
+      { headers: HEADERS() }
+    );
+    for (const c of resp.data.results || []) {
+      const raw = c.properties?.ip_country_code;
+      if (raw) result[c.id] = normaliseCountryCode(raw);
+    }
+  }
+  return result;
+}
+
+/**
+ * Returns all MD + SD deals in the date range with a best-effort country tag.
+ * Shape: [{ id, createdate, regions, tourType, country }]
+ */
+async function getDealsWithCountry({ startDate, endDate } = {}) {
+  const cacheKey = buildKey(NAMESPACES.HUBSPOT, 'dealsWithCountry', startDate, endDate);
+  return getOrFetch(cacheKey, async () => {
+    const dateFilters = [
+      ...(startDate ? [{ propertyName: 'createdate', operator: 'GTE', value: toMs(startDate).toString() }] : []),
+      ...(endDate   ? [{ propertyName: 'createdate', operator: 'LTE', value: (toMs(endDate) + 86_399_999).toString() }] : []),
+    ];
+
+    // Fetch MD + SD in parallel; include source fields for campaign-name fallback
+    const [mdDeals, sdDeals] = await Promise.all([
+      searchDeals(
+        [{ propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.multiDaySalesPipelineId }, ...dateFilters],
+        ['hs_analytics_source', 'hs_analytics_source_data_1']
+      ),
+      searchDeals(
+        [{ propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.singleDayPipelineId }, ...dateFilters],
+        ['hs_analytics_source', 'hs_analytics_source_data_1']
+      ),
+    ]);
+
+    const taggedDeals = [
+      ...mdDeals.map(d => ({ ...d, tourType: 'MD' })),
+      ...sdDeals.map(d => ({ ...d, tourType: 'SD' })),
+    ];
+
+    recordSync('hubspot');
+
+    // Batch-fetch contact associations then contact countries
+    const dealIds = taggedDeals.map(d => d.id);
+    const contactByDeal = await _batchGetAssociations(dealIds);
+    const allContactIds = Object.values(contactByDeal);
+    const countryByContact = allContactIds.length
+      ? await _batchGetContactCountry(allContactIds)
+      : {};
+
+    return taggedDeals.map(deal => {
+      const contactId = contactByDeal[deal.id];
+      let country = contactId ? (countryByContact[contactId] || null) : null;
+      // Fallback: campaign name prefix in source_data_1
+      if (!country) country = countryFromCampaign(deal.properties.hs_analytics_source_data_1);
+      if (!country) country = 'Unknown';
+
+      return {
+        id: deal.id,
+        createdate: deal.properties.createdate,
+        location: deal.properties.location,
+        ownerId: deal.properties.hubspot_owner_id,
+        regions: normaliseRegions(deal.properties.location, deal.properties.hubspot_owner_id),
+        tourType: deal.tourType,
+        country,
+      };
+    });
+  });
+}
+
 module.exports = {
   getMultiDayLeads,
   getMultiDayClosedWon,
@@ -888,6 +1011,7 @@ module.exports = {
   getDealsWithNoRegion,
   getPipelineHealth,
   getOpportunityRates,
+  getDealsWithCountry,
   normaliseRegions,
   matchesRegion,
   ALL_DEPOTS,

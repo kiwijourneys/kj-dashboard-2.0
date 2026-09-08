@@ -29,6 +29,7 @@ export const fetchMdActual     = (params) => api.get('/hubspot/actual/multiday',
 export const fetchSdActual     = (params) => api.get('/hubspot/actual/singleday', { params: toQs(params) }).then(r => r.data);
 export const fetchMdFunnel          = (params) => api.get('/hubspot/funnel/multiday',         { params: toQs(params) }).then(r => r.data);
 export const fetchMdBookedRevenue   = (params) => api.get('/hubspot/booked-revenue/multiday', { params: toQs(params) }).then(r => r.data);
+export const fetchHubspotCountryDeals = (params) => api.get('/hubspot/country-deals',         { params: toQs(params) }).then(r => r.data);
 export const fetchNoRegion     = ()       => api.get('/hubspot/no-region').then(r => r.data);
 
 // ── Google Ads ────────────────────────────────────────────────────────────────

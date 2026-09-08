@@ -109,4 +109,17 @@ router.get('/no-region', async (req, res, next) => {
   }
 });
 
+// GET /api/hubspot/country-deals
+// Returns all MD + SD deals in the period with best-effort country attribution.
+// Country comes from associated contact's ip_country_code (form-submit IP),
+// falling back to campaign name prefix in hs_analytics_source_data_1.
+router.get('/country-deals', async (req, res, next) => {
+  try {
+    const data = await hs.getDealsWithCountry(parseDateRange(req.query));
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

@@ -9,6 +9,7 @@ import {
   fetchGa4Daily, fetchMarketingPerformance,
   fetchMetaDepotCountry, fetchGoogleDepotCountry,
   fetchMetaCountryDaily, fetchGoogleCountryDaily,
+  fetchHubspotCountryDeals,
 } from '../api';
 import KpiCard from '../components/KpiCard';
 import ErrorWidget from '../components/ErrorWidget';
@@ -103,8 +104,9 @@ export default function SalesMarketing() {
     enabled: !!(queryParams.startDate && queryParams.endDate) });
   const metaDepotCountryQ   = useQuery({ queryKey: ['metaDepotCountry',   queryParams], queryFn: () => fetchMetaDepotCountry(queryParams),   retry: 1 });
   const googleDepotCountryQ = useQuery({ queryKey: ['googleDepotCountry', queryParams], queryFn: () => fetchGoogleDepotCountry(queryParams), retry: 1 });
-  const metaCountryDailyQ   = useQuery({ queryKey: ['metaCountryDaily',   queryParams], queryFn: () => fetchMetaCountryDaily(queryParams),   retry: 1 });
-  const googleCountryDailyQ = useQuery({ queryKey: ['googleCountryDaily', queryParams], queryFn: () => fetchGoogleCountryDaily(queryParams), retry: 1 });
+  const metaCountryDailyQ    = useQuery({ queryKey: ['metaCountryDaily',    queryParams], queryFn: () => fetchMetaCountryDaily(queryParams),    retry: 1 });
+  const googleCountryDailyQ  = useQuery({ queryKey: ['googleCountryDaily',  queryParams], queryFn: () => fetchGoogleCountryDaily(queryParams),  retry: 1 });
+  const hsCountryDealsQ      = useQuery({ queryKey: ['hsCountryDeals',      queryParams], queryFn: () => fetchHubspotCountryDeals(queryParams), retry: 1 });
 
   const kpis = summaryQ.data?.kpis;
   const sync = summaryQ.data?.syncTimestamps || {};
@@ -608,18 +610,24 @@ export default function SalesMarketing() {
 
         {/* Enquiries & Spend by Country — weekly chart with country toggle */}
         {(() => {
-          const isLoading = metaCountryDailyQ.isLoading || googleCountryDailyQ.isLoading;
-          const isError   = metaCountryDailyQ.isError   || googleCountryDailyQ.isError;
+          const spendLoading = metaCountryDailyQ.isLoading || googleCountryDailyQ.isLoading;
+          const enqLoading   = hsCountryDealsQ.isLoading;
+          const isLoading    = spendLoading || enqLoading;
+          const isError      = metaCountryDailyQ.isError || googleCountryDailyQ.isError || hsCountryDealsQ.isError;
 
-          // Derive available countries from data
-          const availableCountries = React.useMemo ? (() => {
+          // Derive available countries from HubSpot deal data (the real enquiry source)
+          const availableCountries = (() => {
             const s = new Set();
-            for (const r of (metaCountryDailyQ.data || []))   if (r.country !== 'Other') s.add(r.country);
-            for (const r of (googleCountryDailyQ.data || [])) if (r.country !== 'Other') s.add(r.country);
+            for (const d of (hsCountryDealsQ.data || [])) {
+              if (d.country && d.country !== 'Unknown') s.add(d.country);
+            }
+            // Also add countries from spend data
+            for (const r of (metaCountryDailyQ.data   || [])) if (r.country && r.country !== 'Other') s.add(r.country);
+            for (const r of (googleCountryDailyQ.data || [])) if (r.country && r.country !== 'Other') s.add(r.country);
             return ['ALL', ...Array.from(s).sort()];
-          })() : ['ALL', 'NZ', 'AUS'];
+          })();
 
-          // Build weekly chart data for selected country
+          // Build weekly chart data
           const buildChart = () => {
             const byWeek = {};
             const ensure = wk => {
@@ -629,25 +637,35 @@ export default function SalesMarketing() {
               }
             };
 
-            const addRows = (rows, enquiryKey) => {
+            // Enquiries: real HubSpot deals with ip_country attribution
+            for (const deal of (hsCountryDealsQ.data || [])) {
+              if (!deal.createdate) continue;
+              if (countryDepotFilter !== 'ALL' && deal.country !== countryDepotFilter) continue;
+              const date = deal.createdate.split('T')[0];
+              const wk = weekStart(date);
+              ensure(wk);
+              byWeek[wk].enqTotal++;
+              if (deal.tourType === 'MD') byWeek[wk].enqMD++;
+              // Attribute to depot
+              const region = deal.regions?.[0];
+              const depot = DEPOTS.includes(region) ? region : 'General';
+              if (byWeek[wk][depot] !== undefined) byWeek[wk][depot]++;
+            }
+
+            // Spend: Meta + Google, filtered by campaign country
+            const addSpend = (rows) => {
               for (const r of (rows || [])) {
                 if (!r.date) continue;
                 if (countryDepotFilter !== 'ALL' && r.country !== countryDepotFilter) continue;
                 const wk = weekStart(r.date);
                 ensure(wk);
                 byWeek[wk].spendNzd += r.spendNzd || 0;
-                const enq = r[enquiryKey] || 0;
-                byWeek[wk].enqTotal += enq;
-                if (r.tourType === 'MD') byWeek[wk].enqMD += enq;
-                const depot = DEPOTS.includes(r.depot) ? r.depot : 'General';
-                if (byWeek[wk][depot] !== undefined) byWeek[wk][depot] += enq;
               }
             };
+            addSpend(metaCountryDailyQ.data);
+            addSpend(googleCountryDailyQ.data);
 
-            addRows(metaCountryDailyQ.data,   'leads');
-            addRows(googleCountryDailyQ.data,  'conversions');
-
-            // Fill date range
+            // Fill date range gaps
             if (queryParams.startDate && queryParams.endDate) {
               let cur = new Date(queryParams.startDate + 'T12:00:00Z');
               const end = new Date(queryParams.endDate + 'T12:00:00Z');
@@ -685,7 +703,7 @@ export default function SalesMarketing() {
                 </div>
               </div>
               <p className="text-xs text-gray-400 mb-2">
-                Google + Meta · bars = enquiries by depot · line = spend · country from campaign name
+                Bars = HubSpot enquiries (country from contact IP) · Line = Google + Meta spend (country from campaign name)
               </p>
 
               {/* $/MD Enquiry KPI */}
