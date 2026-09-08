@@ -6,7 +6,7 @@ import {
   fetchMdLeads, fetchSdLeads, fetchMdClosed, fetchSdClosed,
   fetchMdActual, fetchSdActual, fetchGa4RezdyRev, fetchGa4BikeRental,
   fetchGoogleDepotDaily, fetchXeroPnl, fetchXeroMonthly, fetchXeroIncomeByPeriod, fetchMdBookedRevenue,
-  fetchGa4Daily, fetchMarketingPerformance,
+  fetchGa4Daily, fetchMarketingPerformance, fetchMetaDepotCountry,
 } from '../api';
 import KpiCard from '../components/KpiCard';
 import ErrorWidget from '../components/ErrorWidget';
@@ -98,6 +98,7 @@ export default function SalesMarketing() {
   const ga4DailyQ          = useQuery({ queryKey: ['ga4Daily',          queryParams], queryFn: () => fetchGa4Daily(queryParams) });
   const xeroIncomeByPeriodQ = useQuery({ queryKey: ['xeroIncomeByPeriod', queryParams], queryFn: () => fetchXeroIncomeByPeriod(queryParams), retry: 1,
     enabled: !!(queryParams.startDate && queryParams.endDate) });
+  const metaDepotCountryQ  = useQuery({ queryKey: ['metaDepotCountry', queryParams], queryFn: () => fetchMetaDepotCountry(queryParams), retry: 1 });
 
   const kpis = summaryQ.data?.kpis;
   const sync = summaryQ.data?.syncTimestamps || {};
@@ -597,6 +598,104 @@ export default function SalesMarketing() {
               </ComposedChart>
             </ResponsiveContainer>
           )}
+        </div>
+
+        {/* $/Enquiry by Depot × Country — Meta spend matrix */}
+        <div className="card lg:col-span-2">
+          <h3 className="text-sm font-medium text-gray-600 mb-1">$/Enquiry by Depot &amp; Country</h3>
+          <p className="text-xs text-gray-400 mb-3">
+            Meta campaigns only · country from campaign name prefix (NZ | AUS | …) · lead = Meta form/pixel submission
+          </p>
+          {metaDepotCountryQ.isLoading ? (
+            <div className="h-32 flex items-center justify-center text-gray-400 text-sm">Loading…</div>
+          ) : metaDepotCountryQ.isError ? (
+            <div className="h-32 flex items-center justify-center text-red-400 text-sm">Failed to load</div>
+          ) : !metaDepotCountryQ.data?.countries?.length ? (
+            <div className="h-32 flex items-center justify-center text-gray-400 text-sm">No data</div>
+          ) : (() => {
+            const { countries, depots, matrix } = metaDepotCountryQ.data;
+            // Filter to depots that have any spend
+            const activeDepots = depots.filter(d => countries.some(c => matrix[d]?.[c]?.spendNzd > 0));
+            const totalSpend = activeDepots.reduce((s, d) => s + countries.reduce((cs, c) => cs + (matrix[d]?.[c]?.spendNzd || 0), 0), 0);
+            if (totalSpend === 0) return <div className="h-32 flex items-center justify-center text-gray-400 text-sm">No spend data</div>;
+            return (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr>
+                      <th className="text-left py-1.5 px-2 font-medium text-gray-500 border-b border-gray-200">Depot</th>
+                      {countries.map(c => (
+                        <th key={c} className="text-center py-1.5 px-2 font-medium text-gray-500 border-b border-gray-200" colSpan={2}>{c}</th>
+                      ))}
+                      <th className="text-center py-1.5 px-2 font-medium text-gray-500 border-b border-gray-200" colSpan={2}>Total</th>
+                    </tr>
+                    <tr>
+                      <th className="py-1 px-2 text-gray-400 font-normal border-b border-gray-100"></th>
+                      {countries.map(c => (
+                        <React.Fragment key={c}>
+                          <th className="py-1 px-1 text-gray-400 font-normal border-b border-gray-100 text-center">Enquiries</th>
+                          <th className="py-1 px-1 text-gray-400 font-normal border-b border-gray-100 text-center">$/Enq</th>
+                        </React.Fragment>
+                      ))}
+                      <th className="py-1 px-1 text-gray-400 font-normal border-b border-gray-100 text-center">Enquiries</th>
+                      <th className="py-1 px-1 text-gray-400 font-normal border-b border-gray-100 text-center">$/Enq</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeDepots.map((depot, i) => {
+                      const rowTotalLeads = countries.reduce((s, c) => s + (matrix[depot]?.[c]?.leads || 0), 0);
+                      const rowTotalSpend = countries.reduce((s, c) => s + (matrix[depot]?.[c]?.spendNzd || 0), 0);
+                      const rowCpl = rowTotalLeads > 0 ? rowTotalSpend / rowTotalLeads : null;
+                      return (
+                        <tr key={depot} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                          <td className="py-1.5 px-2 font-medium text-gray-700" style={{ color: DEPOT_COLORS[depot] }}>
+                            {depot}
+                          </td>
+                          {countries.map(c => {
+                            const cell = matrix[depot]?.[c];
+                            return (
+                              <React.Fragment key={c}>
+                                <td className="py-1.5 px-1 text-center text-gray-700">{cell?.leads || 0}</td>
+                                <td className="py-1.5 px-1 text-center text-gray-500">
+                                  {cell?.cpl != null ? fmtNzd(cell.cpl) : '—'}
+                                </td>
+                              </React.Fragment>
+                            );
+                          })}
+                          <td className="py-1.5 px-1 text-center font-medium text-gray-700">{rowTotalLeads}</td>
+                          <td className="py-1.5 px-1 text-center font-medium text-gray-600">{rowCpl != null ? fmtNzd(rowCpl) : '—'}</td>
+                        </tr>
+                      );
+                    })}
+                    {/* Totals row */}
+                    {(() => {
+                      const colTotals = countries.map(c => ({
+                        leads: activeDepots.reduce((s, d) => s + (matrix[d]?.[c]?.leads || 0), 0),
+                        spendNzd: activeDepots.reduce((s, d) => s + (matrix[d]?.[c]?.spendNzd || 0), 0),
+                      }));
+                      const grandLeads = colTotals.reduce((s, t) => s + t.leads, 0);
+                      const grandSpend = colTotals.reduce((s, t) => s + t.spendNzd, 0);
+                      return (
+                        <tr className="border-t border-gray-200 bg-gray-100 font-semibold">
+                          <td className="py-1.5 px-2 text-gray-700">Total</td>
+                          {colTotals.map((t, i) => (
+                            <React.Fragment key={i}>
+                              <td className="py-1.5 px-1 text-center text-gray-700">{t.leads}</td>
+                              <td className="py-1.5 px-1 text-center text-gray-600">
+                                {t.leads > 0 ? fmtNzd(t.spendNzd / t.leads) : '—'}
+                              </td>
+                            </React.Fragment>
+                          ))}
+                          <td className="py-1.5 px-1 text-center text-gray-700">{grandLeads}</td>
+                          <td className="py-1.5 px-1 text-center text-gray-600">{grandLeads > 0 ? fmtNzd(grandSpend / grandLeads) : '—'}</td>
+                        </tr>
+                      );
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Inquiries by Depot & Ad Spend */}

@@ -44,6 +44,7 @@ export const fetchMetaCampaigns  = (params) => api.get('/meta/campaigns',       
 export const fetchMetaDaily      = (params) => api.get('/meta/daily-spend',       { params: toQs(params) }).then(r => r.data);
 export const fetchMetaDepotDaily    = (params) => api.get('/meta/depot-daily-spend',    { params: toQs(params) }).then(r => r.data);
 export const fetchMetaTourTypeDaily = (params) => api.get('/meta/tourtype-daily-spend', { params: toQs(params) }).then(r => r.data);
+export const fetchMetaDepotCountry  = (params) => api.get('/meta/depot-country-matrix', { params: toQs(params) }).then(r => r.data);
 
 // ── Rezdy ─────────────────────────────────────────────────────────────────────
 export const fetchRezdyBookings = (params) => api.get('/rezdy/bookings', { params: toQs(params) }).then(r => r.data);

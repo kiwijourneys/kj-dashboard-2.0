@@ -400,6 +400,81 @@ async function getTourTypeDepotPerformance({ startDate, endDate } = {}) {
   });
 }
 
+// ── Depot × Country matrix (spend + leads) ───────────────────────────────────
+//
+// Extracts the country code from campaign names following the pattern:
+//   "NZ | SD | Prospecting | School holidays"
+//   "AUS | MD | ..."
+// The first pipe-delimited segment is the country. Falls back to 'Other'.
+
+const KNOWN_COUNTRIES = ['NZ', 'AUS', 'UK', 'US', 'CA', 'DE', 'FR'];
+
+function campaignToCountry(campaignName) {
+  if (!campaignName) return 'Other';
+  const segment = (campaignName.split('|')[0] || '').trim().toUpperCase();
+  if (KNOWN_COUNTRIES.includes(segment)) return segment;
+  return 'Other';
+}
+
+/**
+ * Returns spend and Meta lead counts broken down by depot × country.
+ * Shape: { countries: string[], depots: string[], matrix: { [depot]: { [country]: { spendNzd, leads, cpl } } } }
+ */
+async function getDepotCountryMatrix({ startDate, endDate } = {}) {
+  const cacheKey = buildKey(NAMESPACES.META, 'depotCountryMatrix', startDate, endDate);
+  return getOrFetch(cacheKey, async () => {
+    const timeRange = buildTimeRange(startDate, endDate);
+    const params = {
+      ...defaultParams(),
+      fields: 'campaign_name,adset_name,spend,actions',
+      level: 'adset',
+      ...(timeRange ? { time_range: timeRange } : { date_preset: 'this_month' }),
+      limit: 500,
+    };
+
+    const rows = [];
+    let url = metaUrl(`act_${config.meta.adAccountId}/insights`);
+    while (url) {
+      const resp = await axios.get(url, { params: url.includes('?') ? {} : params });
+      rows.push(...(resp.data.data || []));
+      url = resp.data.paging?.next || null;
+    }
+
+    recordSync('meta');
+
+    // Build matrix
+    const matrix = {};
+    const countrySet = new Set();
+    for (const d of ALL_DEPOTS) matrix[d] = {};
+
+    for (const row of rows) {
+      const depot = adsetToDepot(row.adset_name || '') || 'General';
+      const country = campaignToCountry(row.campaign_name);
+      countrySet.add(country);
+
+      if (!matrix[depot][country]) matrix[depot][country] = { spendNzd: 0, leads: 0 };
+      matrix[depot][country].spendNzd += toNzd(row.spend);
+
+      const actions = row.actions || [];
+      const leads = actions
+        .filter(a => ['lead', 'offsite_conversion.fb_pixel_lead', 'onsite_conversion.lead_grouped'].includes(a.action_type))
+        .reduce((sum, a) => sum + parseInt(a.value || 0, 10), 0);
+      matrix[depot][country].leads += leads;
+    }
+
+    // Compute cpl in each cell
+    const countries = Array.from(countrySet).sort();
+    for (const depot of ALL_DEPOTS) {
+      for (const country of countries) {
+        const cell = matrix[depot][country];
+        if (cell) cell.cpl = cell.leads > 0 ? cell.spendNzd / cell.leads : null;
+      }
+    }
+
+    return { countries, depots: ALL_DEPOTS, matrix };
+  });
+}
+
 // ── Daily spend broken down by tour type (MD / SD / Unclassified) ─────────────
 async function getTourTypeDailySpend({ startDate, endDate } = {}) {
   const cacheKey = buildKey(NAMESPACES.META, 'tourTypeDailySpend', startDate, endDate);
@@ -445,5 +520,6 @@ module.exports = {
   getDepotPerformance,
   getTourTypeDepotPerformance,
   getTourTypeDailySpend,
+  getDepotCountryMatrix,
   toNzd,
 };
