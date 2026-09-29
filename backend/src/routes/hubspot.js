@@ -109,6 +109,16 @@ router.get('/no-region', async (req, res, next) => {
   }
 });
 
+// GET /api/hubspot/closedwon/with-country
+router.get('/closedwon/with-country', async (req, res, next) => {
+  try {
+    const data = await hubspot.getWonDealsWithCountry(parseDateRange(req.query));
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/hubspot/country-deals
 // Returns all MD + SD deals in the period with best-effort country attribution.
 // Country comes from associated contact's ip_country_code (form-submit IP),

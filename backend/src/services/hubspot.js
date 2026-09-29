@@ -999,6 +999,45 @@ async function getDealsWithCountry({ startDate, endDate } = {}) {
   });
 }
 
+async function getWonDealsWithCountry({ startDate, endDate } = {}) {
+  const cacheKey = buildKey(NAMESPACES.HUBSPOT, 'wonDealsWithCountry', startDate, endDate);
+  return getOrFetch(cacheKey, async () => {
+    const closedateFilters = [
+      ...(startDate ? [{ propertyName: 'closedate', operator: 'GTE', value: toMs(startDate).toString() }] : []),
+      ...(endDate   ? [{ propertyName: 'closedate', operator: 'LTE', value: (toMs(endDate) + 86_399_999).toString() }] : []),
+    ];
+    const [mdDeals, sdDeals] = await Promise.all([
+      searchDeals([{ propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.multiDayOpsPipelineId }, ...closedateFilters],
+        ['hs_analytics_source', 'hs_analytics_source_data_1']),
+      searchDeals([{ propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.singleDayPipelineId },
+        { propertyName: 'dealstage', operator: 'IN', values: Object.values(config.hubspot.singleDayStages).filter(Boolean) },
+        ...closedateFilters],
+        ['hs_analytics_source', 'hs_analytics_source_data_1']),
+    ]);
+    const tagged = [
+      ...mdDeals.map(d => ({ ...d, tourType: 'MD' })),
+      ...sdDeals.map(d => ({ ...d, tourType: 'SD' })),
+    ];
+    const dealIds = tagged.map(d => d.id);
+    const contactByDeal = await _batchGetAssociations(dealIds);
+    const allContactIds = Object.values(contactByDeal);
+    const countryByContact = allContactIds.length ? await _batchGetContactCountry(allContactIds) : {};
+    return tagged.map(deal => {
+      const contactId = contactByDeal[deal.id];
+      let country = contactId ? (countryByContact[contactId] || null) : null;
+      if (!country) country = countryFromCampaign(deal.properties.hs_analytics_source_data_1);
+      if (!country) country = 'Unknown';
+      return {
+        id: deal.id,
+        closedate: deal.properties.closedate,
+        tourType: deal.tourType,
+        country,
+        regions: normaliseRegions(deal.properties.location, deal.properties.hubspot_owner_id),
+      };
+    });
+  });
+}
+
 module.exports = {
   getMultiDayLeads,
   getMultiDayClosedWon,
@@ -1012,6 +1051,7 @@ module.exports = {
   getPipelineHealth,
   getOpportunityRates,
   getDealsWithCountry,
+  getWonDealsWithCountry,
   normaliseRegions,
   matchesRegion,
   ALL_DEPOTS,
