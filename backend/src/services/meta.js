@@ -408,11 +408,14 @@ async function getTourTypeDepotPerformance({ startDate, endDate } = {}) {
 // The first pipe-delimited segment is the country. Falls back to 'Other'.
 
 const KNOWN_COUNTRIES = ['NZ', 'AUS', 'UK', 'US', 'CA', 'DE', 'FR'];
+// Meta campaigns use 'AU', Google uses 'AUS' — normalise to AUS for consistency
+const COUNTRY_ALIASES = { AU: 'AUS' };
 
 function campaignToCountry(campaignName) {
   if (!campaignName) return 'Other';
   const segment = (campaignName.split('|')[0] || '').trim().toUpperCase();
-  if (KNOWN_COUNTRIES.includes(segment)) return segment;
+  const normalised = COUNTRY_ALIASES[segment] || segment;
+  if (KNOWN_COUNTRIES.includes(normalised)) return normalised;
   return 'Other';
 }
 
