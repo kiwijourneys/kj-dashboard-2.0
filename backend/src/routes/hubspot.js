@@ -112,7 +112,7 @@ router.get('/no-region', async (req, res, next) => {
 // GET /api/hubspot/closedwon/with-country
 router.get('/closedwon/with-country', async (req, res, next) => {
   try {
-    const data = await hubspot.getWonDealsWithCountry(parseDateRange(req.query));
+    const data = await hs.getWonDealsWithCountry(parseDateRange(req.query));
     res.json(data);
   } catch (err) {
     next(err);
