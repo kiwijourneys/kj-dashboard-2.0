@@ -999,6 +999,54 @@ async function getDealsWithCountry({ startDate, endDate } = {}) {
   });
 }
 
+/**
+ * All MD + SD deals (enquiries + won) by createdate, with country + won flag.
+ * Won MD deals live in the Ops pipeline — this fetches both Sales + Ops + SD
+ * so cohort conversion rates can be computed (enquiries that became won).
+ */
+async function getAllDealsWithCountry({ startDate, endDate } = {}) {
+  const cacheKey = buildKey(NAMESPACES.HUBSPOT, 'allDealsWithCountry', startDate, endDate);
+  return getOrFetch(cacheKey, async () => {
+    const dateFilters = [
+      ...(startDate ? [{ propertyName: 'createdate', operator: 'GTE', value: toMs(startDate).toString() }] : []),
+      ...(endDate   ? [{ propertyName: 'createdate', operator: 'LTE', value: (toMs(endDate) + 86_399_999).toString() }] : []),
+    ];
+    const extraFields = ['hs_analytics_source', 'hs_analytics_source_data_1', 'hs_is_closed_won', 'dealstage'];
+    const [mdSales, mdOps, sdDeals] = await Promise.all([
+      searchDeals([{ propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.multiDaySalesPipelineId }, ...dateFilters], extraFields),
+      searchDeals([{ propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.multiDayOpsPipelineId }, ...dateFilters], extraFields),
+      searchDeals([{ propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.singleDayPipelineId }, ...dateFilters], extraFields),
+    ]);
+    const tagged = [
+      ...mdSales.map(d => ({ ...d, tourType: 'MD', won: false })),
+      ...mdOps.map(d => ({ ...d, tourType: 'MD', won: true })),
+      ...sdDeals.map(d => ({
+        ...d, tourType: 'SD',
+        won: [config.hubspot.singleDayStages.complete, config.hubspot.singleDayStages.bookingAdminComplete]
+              .includes(d.properties.dealstage),
+      })),
+    ];
+    const dealIds = tagged.map(d => d.id);
+    const contactByDeal = await _batchGetAssociations(dealIds);
+    const allContactIds = Object.values(contactByDeal);
+    const countryByContact = allContactIds.length ? await _batchGetContactCountry(allContactIds) : {};
+    return tagged.map(deal => {
+      const contactId = contactByDeal[deal.id];
+      let country = contactId ? (countryByContact[contactId] || null) : null;
+      if (!country) country = countryFromCampaign(deal.properties.hs_analytics_source_data_1);
+      if (!country) country = 'Unknown';
+      return {
+        id: deal.id,
+        createdate: deal.properties.createdate,
+        tourType: deal.tourType,
+        won: deal.won,
+        country,
+        regions: normaliseRegions(deal.properties.location, deal.properties.hubspot_owner_id),
+      };
+    });
+  });
+}
+
 async function getWonDealsWithCountry({ startDate, endDate } = {}) {
   const cacheKey = buildKey(NAMESPACES.HUBSPOT, 'wonDealsWithCountry', startDate, endDate);
   return getOrFetch(cacheKey, async () => {
@@ -1051,6 +1099,7 @@ module.exports = {
   getPipelineHealth,
   getOpportunityRates,
   getDealsWithCountry,
+  getAllDealsWithCountry,
   getWonDealsWithCountry,
   normaliseRegions,
   matchesRegion,

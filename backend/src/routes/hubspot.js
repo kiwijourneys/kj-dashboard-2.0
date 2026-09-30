@@ -109,6 +109,16 @@ router.get('/no-region', async (req, res, next) => {
   }
 });
 
+// GET /api/hubspot/deals/all-with-country — enquiries + won, for cohort conversion rate
+router.get('/deals/all-with-country', async (req, res, next) => {
+  try {
+    const data = await hs.getAllDealsWithCountry(parseDateRange(req.query));
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/hubspot/closedwon/with-country
 router.get('/closedwon/with-country', async (req, res, next) => {
   try {
