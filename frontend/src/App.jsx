@@ -41,7 +41,6 @@ const NAV = [
   { path: '/attribution', label: 'Marketing Attribution' },
   { path: '/funnel',      label: 'Sales Pipeline' },
   { path: '/channels',    label: 'Paid Channels' },
-  { path: '/campaigns',   label: 'Campaigns' },
   { path: '/google-ads',  label: 'Google Ads' },
   { path: '/regions',     label: 'Performance by Region' },
   { path: '/organic',     label: 'Organic / SEO' },
@@ -91,7 +90,6 @@ export default function App() {
                 <Route path="/summary"   element={<Navigate to="/pulse" replace />} />
                 <Route path="/singleday" element={<SingleDayBikeHire />} />
                 <Route path="/channels"  element={<PaidChannels />} />
-                <Route path="/campaigns" element={<CampaignDetail />} />
                 <Route path="/google-ads" element={<GoogleAdsView />} />
                 <Route path="/regions"   element={<PerformanceByRegion />} />
                 <Route path="/funnel"    element={<FunnelView />} />

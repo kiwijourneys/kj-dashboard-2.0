@@ -134,6 +134,7 @@ export default function PerformanceByRegion() {
     const m = {};
     for (const d of DEPOTS) m[d] = { NZ: 0, AUS: 0, Other: 0 };
     for (const deal of (hsQ.data || [])) {
+      if (deal.tourType !== 'MD') continue;
       const bucket = toCountryBucket(deal.country);
       for (const rawDepot of (deal.regions || [])) {
         const depot = normaliseDepot(rawDepot);
@@ -207,8 +208,9 @@ export default function PerformanceByRegion() {
       byBucket[b].google += r.spendNzd || 0;
     }
 
-    // Enquiries — count each deal once
+    // Enquiries — MD only, count each deal once
     for (const deal of (hsQ.data || [])) {
+      if (deal.tourType !== 'MD') continue;
       const dc = toCountryBucket(deal.country);
       if (chartCountry !== 'Total' && dc !== chartCountry) continue;
       const dateStr = nzDateStr(deal.createdate);
@@ -456,7 +458,7 @@ export default function PerformanceByRegion() {
       </div>
 
       <p className="text-xs text-gray-400">
-        Spend = Google Ads only (depot attributed from campaign name). Enquiries = HubSpot deals tagged to each region.
+        Spend = Google Ads only (depot attributed from campaign name). Enquiries = Multi Day HubSpot deals tagged to each region.
         CPL = Spend ÷ Enquiries. Kawarau Gorge campaigns and Queenstown enquiries are included in Central Otago.
         <span className="text-green-600 ml-2">Green</span> = under $100/lead.
         <span className="text-red-500 ml-1">Red</span> = over $500/lead.
