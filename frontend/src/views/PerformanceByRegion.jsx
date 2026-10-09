@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useFilter } from '../context/FilterContext';
+import { useFilters } from '../context/FilterContext';
 import { fetchGoogleDepotCountry, fetchMetaDepotCountry, fetchHubspotCountryDeals } from '../api';
 
 const DEPOTS = ['Nelson', 'West Coast', 'Central Otago', 'Kawarau Gorge'];
@@ -34,7 +34,7 @@ function CplBadge({ cpl }) {
 }
 
 export default function PerformanceByRegion() {
-  const { queryParams } = useFilter();
+  const { queryParams } = useFilters();
 
   const gQ  = useQuery({ queryKey: ['g-depot-country', queryParams],  queryFn: () => fetchGoogleDepotCountry(queryParams) });
   const mQ  = useQuery({ queryKey: ['m-depot-country', queryParams],  queryFn: () => fetchMetaDepotCountry(queryParams) });
