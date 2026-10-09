@@ -6,7 +6,7 @@ import {
   fetchGoogleCountryDaily,
 } from '../api';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -59,11 +59,12 @@ function daysBetween(a, b) {
   return Math.abs((new Date(b) - new Date(a)) / 86400000);
 }
 
-function fmtLabel(dateStr, isWeekly) {
+function fmtLabel(dateStr, granularity) {
   const d = new Date(dateStr + 'T12:00:00Z');
   const day = d.getUTCDate();
   const mon = d.toLocaleString('en-NZ', { month: 'short', timeZone: 'UTC' });
-  return isWeekly ? `${day} ${mon}` : `${day} ${mon}`;
+  if (granularity === 'monthly') return mon + ' ' + d.getUTCFullYear().toString().slice(2);
+  return `${day} ${mon}`;
 }
 
 // ── Summary table cell ───────────────────────────────────────────────────────
@@ -73,25 +74,24 @@ function CplBadge({ cpl }) {
   return <span className={`font-medium ${color}`}>{fmtNzd(cpl)}</span>;
 }
 
-// ── Custom tooltip for spend chart ──────────────────────────────────────────
-function SpendTooltip({ active, payload, label }) {
+// ── Combined tooltip ─────────────────────────────────────────────────────────
+function CombinedTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
-  const google = payload[0]?.value || 0;
+  const spend = payload.find(p => p.dataKey === 'google')?.value || 0;
+  const enq   = payload.find(p => p.dataKey === 'enquiries')?.value || 0;
   return (
     <div className="bg-white border border-gray-200 rounded shadow-lg p-3 text-xs">
-      <div className="font-medium text-gray-700 mb-1">{label}</div>
-      <div className="text-[#99ca3c] font-semibold">{fmtNzd(google, 0) ?? '$0'}</div>
-    </div>
-  );
-}
-
-function EnqTooltip({ active, payload, label }) {
-  if (!active || !payload?.length) return null;
-  const val = payload[0]?.value || 0;
-  return (
-    <div className="bg-white border border-gray-200 rounded shadow-lg p-3 text-xs">
-      <div className="font-medium text-gray-700 mb-1">{label}</div>
-      <div className="text-purple-600">{val} {val === 1 ? 'enquiry' : 'enquiries'}</div>
+      <div className="font-medium text-gray-700 mb-2">{label}</div>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: GOOGLE_COLOR }} />
+        <span className="text-gray-600">Spend</span>
+        <span className="font-semibold text-gray-800 ml-auto">{fmtNzd(spend, 0) ?? '$0'}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: ENQ_COLOR }} />
+        <span className="text-gray-600">Enquiries</span>
+        <span className="font-semibold text-gray-800 ml-auto">{enq}</span>
+      </div>
     </div>
   );
 }
@@ -99,8 +99,9 @@ function EnqTooltip({ active, payload, label }) {
 // ── Main component ───────────────────────────────────────────────────────────
 export default function PerformanceByRegion() {
   const { queryParams } = useFilters();
-  const [chartCountry, setChartCountry] = useState('Total');  // Total | NZ | AUS
-  const [chartDepot,   setChartDepot]   = useState('All');    // All | Nelson | West Coast | Central Otago
+  const [chartCountry,  setChartCountry]  = useState('Total');   // Total | NZ | AUS
+  const [chartDepot,    setChartDepot]    = useState('All');     // All | Nelson | West Coast | Central Otago
+  const [granularity,   setGranularity]   = useState('weekly');  // daily | weekly | monthly
 
   // Summary table queries
   const gMatrixQ  = useQuery({ queryKey: ['g-depot-country', queryParams],  queryFn: () => fetchGoogleDepotCountry(queryParams) });
@@ -182,14 +183,17 @@ export default function PerformanceByRegion() {
   }, [depotTotals]);
 
   // ── Chart data ──────────────────────────────────────────────────────────
-  const isWeekly = useMemo(() => {
-    if (!queryParams.startDate || !queryParams.endDate) return true;
-    return daysBetween(queryParams.startDate, queryParams.endDate) > 21;
-  }, [queryParams]);
-
   const chartData = useMemo(() => {
     const byBucket = {};
-    const bucket = d => isWeekly ? weekStart(d) : d;
+
+    function monthStart(dateStr) {
+      return dateStr.slice(0, 7) + '-01';
+    }
+    const bucket = d => {
+      if (granularity === 'daily')   return d;
+      if (granularity === 'monthly') return monthStart(d);
+      return weekStart(d);
+    };
     const ensure = b => { if (!byBucket[b]) byBucket[b] = { date: b, google: 0, enquiries: 0 }; };
 
     // Google Ads spend rows
@@ -220,8 +224,8 @@ export default function PerformanceByRegion() {
 
     return Object.values(byBucket)
       .sort((a, b) => a.date.localeCompare(b.date))
-      .map(r => ({ ...r, label: fmtLabel(r.date, isWeekly) }));
-  }, [gDailyQ.data, hsQ.data, chartDepot, chartCountry, isWeekly]);
+      .map(r => ({ ...r, label: fmtLabel(r.date, granularity) }));
+  }, [gDailyQ.data, hsQ.data, chartDepot, chartCountry, granularity]);
 
   // ── Render ───────────────────────────────────────────────────────────────
   const thBase = 'px-3 py-2 text-xs font-medium text-gray-500 border-b border-gray-200 bg-gray-50';
@@ -376,17 +380,30 @@ export default function PerformanceByRegion() {
 
       {/* ── Charts section ── */}
       <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base font-semibold text-gray-800">Performance over time</h2>
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Granularity */}
+            <div className="flex gap-1 rounded-lg border border-gray-200 p-0.5 bg-gray-50">
+              {['daily','weekly','monthly'].map(g => (
+                <button
+                  key={g}
+                  onClick={() => setGranularity(g)}
+                  className={`px-3 py-1 rounded text-xs font-medium capitalize transition-colors ${
+                    granularity === g ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >{g}</button>
+              ))}
+            </div>
+            <div className="h-5 w-px bg-gray-200" />
             {/* Country tabs */}
             <div className="flex gap-1">
               <CountryTab value="Total"   label="Total" />
               <CountryTab value="NZ"      label="New Zealand" />
               <CountryTab value="AUS"     label="Australia" />
             </div>
-            {/* Region filter */}
             <div className="h-5 w-px bg-gray-200" />
+            {/* Region filter */}
             <div className="flex gap-1">
               <DepotBtn value="All" />
               {DEPOTS.map(d => <DepotBtn key={d} value={d} />)}
@@ -401,48 +418,39 @@ export default function PerformanceByRegion() {
         )}
 
         {!chartLoading && chartData.length > 0 && (
-          <div className="space-y-6">
-            {/* Spend chart */}
-            <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
-              <div className="text-sm font-medium text-gray-700 mb-4">
-                Google Ads Spend — {chartDepot === 'All' ? 'All Regions' : chartDepot}
-                {chartCountry !== 'Total' && ` · ${COUNTRY_LABELS[chartCountry]}`}
-              </div>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={chartData} margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} />
-                  <YAxis
-                    tick={{ fontSize: 11, fill: '#6b7280' }}
-                    axisLine={false} tickLine={false}
-                    tickFormatter={v => v >= 1000 ? `$${(v/1000).toFixed(1)}k` : `$${v}`}
-                  />
-                  <Tooltip content={<SpendTooltip />} />
-                  <Bar dataKey="google" name="Google Ads" fill={GOOGLE_COLOR} radius={[3,3,0,0]} />
-                </BarChart>
-              </ResponsiveContainer>
+          <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+            <div className="text-sm font-medium text-gray-700 mb-4">
+              {chartDepot === 'All' ? 'All Regions' : chartDepot}
+              {chartCountry !== 'Total' && ` · ${COUNTRY_LABELS[chartCountry]}`}
             </div>
-
-            {/* Enquiries chart */}
-            <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
-              <div className="text-sm font-medium text-gray-700 mb-4">
-                Enquiries — {chartDepot === 'All' ? 'All Regions' : chartDepot}
-                {chartCountry !== 'Total' && ` · ${COUNTRY_LABELS[chartCountry]}`}
-              </div>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={chartData} margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} />
-                  <YAxis
-                    tick={{ fontSize: 11, fill: '#6b7280' }}
-                    axisLine={false} tickLine={false}
-                    allowDecimals={false}
-                  />
-                  <Tooltip content={<EnqTooltip />} />
-                  <Bar dataKey="enquiries" name="Enquiries" fill={ENQ_COLOR} radius={[3,3,0,0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            <ResponsiveContainer width="100%" height={280}>
+              <ComposedChart data={chartData} margin={{ top: 4, right: 48, left: 8, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                <YAxis
+                  yAxisId="left"
+                  orientation="left"
+                  tick={{ fontSize: 11, fill: '#6b7280' }}
+                  axisLine={false} tickLine={false}
+                  tickFormatter={v => v >= 1000 ? `$${(v/1000).toFixed(1)}k` : `$${v}`}
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  tick={{ fontSize: 11, fill: ENQ_COLOR }}
+                  axisLine={false} tickLine={false}
+                  allowDecimals={false}
+                  width={32}
+                />
+                <Tooltip content={<CombinedTooltip />} />
+                <Legend
+                  formatter={v => v === 'google' ? 'Google Ads Spend' : 'Enquiries'}
+                  wrapperStyle={{ fontSize: 12 }}
+                />
+                <Bar    yAxisId="left"  dataKey="google"     name="google"     fill={GOOGLE_COLOR} radius={[3,3,0,0]} />
+                <Line  yAxisId="right" dataKey="enquiries"  name="enquiries"  stroke={ENQ_COLOR} strokeWidth={2} dot={{ r: 4, fill: ENQ_COLOR }} activeDot={{ r: 5 }} />
+              </ComposedChart>
+            </ResponsiveContainer>
           </div>
         )}
       </div>
