@@ -32,6 +32,7 @@ import FunnelView         from './views/FunnelView';
 import OrganicSEO         from './views/OrganicSEO';
 import SlackAlertConfig   from './views/SlackAlertConfig';
 import SingleDayBikeHire  from './views/SingleDayBikeHire';
+import PerformanceByRegion from './views/PerformanceByRegion';
 
 const NAV = [
   { path: '/pulse',       label: 'Pulse Check' },
@@ -42,6 +43,7 @@ const NAV = [
   { path: '/channels',    label: 'Paid Channels' },
   { path: '/campaigns',   label: 'Campaigns' },
   { path: '/google-ads',  label: 'Google Ads' },
+  { path: '/regions',     label: 'Performance by Region' },
   { path: '/organic',     label: 'Organic / SEO' },
   { path: '/alerts',      label: 'Slack Alerts' },
 ];
@@ -91,6 +93,7 @@ export default function App() {
                 <Route path="/channels"  element={<PaidChannels />} />
                 <Route path="/campaigns" element={<CampaignDetail />} />
                 <Route path="/google-ads" element={<GoogleAdsView />} />
+                <Route path="/regions"   element={<PerformanceByRegion />} />
                 <Route path="/funnel"    element={<FunnelView />} />
                 <Route path="/organic"   element={<OrganicSEO />} />
                 <Route path="/alerts"    element={<SlackAlertConfig />} />
