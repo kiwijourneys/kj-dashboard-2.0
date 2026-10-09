@@ -107,4 +107,14 @@ router.get('/rezdy-products', async (req, res, next) => {
   }
 });
 
+// GET /api/ga4/campaign-engagement  — avg engagement time per Google Ads campaign
+router.get('/campaign-engagement', async (req, res, next) => {
+  try {
+    const data = await ga4.getCampaignEngagement(parseDateRange(req.query));
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

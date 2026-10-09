@@ -60,7 +60,8 @@ export const fetchGa4TopPages    = (params) => api.get('/ga4/top-pages',        
 export const fetchGa4BikeRental  = (params) => api.get('/ga4/bike-rental',         { params: toQs(params) }).then(r => r.data);
 export const fetchGa4Daily       = (params) => api.get('/ga4/daily-sessions',      { params: toQs(params) }).then(r => r.data);
 export const fetchGa4RezdyRev      = (params) => api.get('/ga4/rezdy-revenue',    { params: toQs(params) }).then(r => r.data);
-export const fetchGa4RezdyProducts = (params) => api.get('/ga4/rezdy-products', { params: toQs(params) }).then(r => r.data);
+export const fetchGa4RezdyProducts      = (params) => api.get('/ga4/rezdy-products',       { params: toQs(params) }).then(r => r.data);
+export const fetchGa4CampaignEngagement = (params) => api.get('/ga4/campaign-engagement', { params: toQs(params) }).then(r => r.data);
 
 // ── Xero ─────────────────────────────────────────────────────────────────────
 export const fetchXeroPnl          = (params) => api.get('/xero/pnl',                   { params: toQs(params) }).then(r => r.data);

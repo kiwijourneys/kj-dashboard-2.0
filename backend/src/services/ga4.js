@@ -448,6 +448,39 @@ async function getRezdyProducts({ startDate, endDate } = {}) {
   });
 }
 
+// ── Average engagement time per Google Ads campaign ──────────────────────────
+
+async function getCampaignEngagement({ startDate, endDate } = {}) {
+  const cacheKey = buildKey(NAMESPACES.GA4, 'campaignEngagement', startDate, endDate);
+  return getOrFetch(cacheKey, async () => {
+    const s = defaultStart(startDate);
+    const e = defaultEnd(endDate);
+
+    const data = await runReport({
+      dimensions: [{ name: 'sessionCampaignName' }],
+      metrics: [
+        { name: 'userEngagementDuration' },
+        { name: 'sessions' },
+      ],
+      dateRanges: [{ startDate: s, endDate: e }],
+      orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+      limit: 100,
+    });
+
+    recordSync('ga4');
+
+    return (data.rows || [])
+      .filter(row => row.dimensionValues[0].value !== '(not set)')
+      .map(row => {
+        const campaign = row.dimensionValues[0].value;
+        const totalEngSec = parseFloat(row.metricValues[0].value || 0);
+        const sessions = parseInt(row.metricValues[1].value || 0, 10);
+        const avgSec = sessions > 0 ? Math.round(totalEngSec / sessions) : 0;
+        return { campaign, avgEngagementSec: avgSec, sessions };
+      });
+  });
+}
+
 module.exports = {
   getChannelPerformance,
   getOrganicMetrics,
@@ -457,4 +490,5 @@ module.exports = {
   getDailySessions,
   getAdvertiserAdSpend,
   getRezdyProducts,
+  getCampaignEngagement,
 };

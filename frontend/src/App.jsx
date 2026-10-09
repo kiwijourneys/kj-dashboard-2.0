@@ -23,6 +23,7 @@ import PasswordGate from './components/PasswordGate';
 
 // Views (lazy-loaded per view)
 import PulseCheck         from './views/PulseCheck';
+import GoogleAdsView      from './views/GoogleAdsView';
 import SalesMarketing     from './views/SalesMarketing';
 import MarketingAttribution from './views/MarketingAttribution';
 import PaidChannels       from './views/PaidChannels';
@@ -40,6 +41,7 @@ const NAV = [
   { path: '/funnel',      label: 'Sales Pipeline' },
   { path: '/channels',    label: 'Paid Channels' },
   { path: '/campaigns',   label: 'Campaigns' },
+  { path: '/google-ads',  label: 'Google Ads' },
   { path: '/organic',     label: 'Organic / SEO' },
   { path: '/alerts',      label: 'Slack Alerts' },
 ];
@@ -88,6 +90,7 @@ export default function App() {
                 <Route path="/singleday" element={<SingleDayBikeHire />} />
                 <Route path="/channels"  element={<PaidChannels />} />
                 <Route path="/campaigns" element={<CampaignDetail />} />
+                <Route path="/google-ads" element={<GoogleAdsView />} />
                 <Route path="/funnel"    element={<FunnelView />} />
                 <Route path="/organic"   element={<OrganicSEO />} />
                 <Route path="/alerts"    element={<SlackAlertConfig />} />
