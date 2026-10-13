@@ -204,19 +204,28 @@ async function searchDeals(filters, properties = [], limit = 100) {
 // ── Multi Day Tours ───────────────────────────────────────────────────────────
 
 /**
- * Multi Day leads = new deals created in pipeline 998655438 within the date range.
+ * Multi Day leads = new deals created in either MD pipeline within the date range.
+ * Includes Operations pipeline so won deals (moved from Sales→Ops) are still counted.
  * Uses createdate, NOT current stage.
  */
 async function getMultiDayLeads({ startDate, endDate, region } = {}) {
   const cacheKey = buildKey(NAMESPACES.HUBSPOT, 'mdLeads', startDate, endDate, region || 'all');
   return getOrFetch(cacheKey, async () => {
-    const filters = [
-      { propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.multiDaySalesPipelineId },
+    const dateFilters = [
       ...(startDate ? [{ propertyName: 'createdate', operator: 'GTE', value: toMs(startDate).toString() }] : []),
       ...(endDate   ? [{ propertyName: 'createdate', operator: 'LTE', value: (toMs(endDate) + 86_399_999).toString() }] : []),
     ];
 
-    const deals = await searchDeals(filters);
+    const [salesDeals, opsDeals] = await Promise.all([
+      searchDeals([{ propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.multiDaySalesPipelineId }, ...dateFilters]),
+      searchDeals([{ propertyName: 'pipeline', operator: 'EQ', value: config.hubspot.multiDayOpsPipelineId }, ...dateFilters]),
+    ]);
+    const seenIds = new Set();
+    const deals = [...salesDeals, ...opsDeals].filter(d => {
+      if (seenIds.has(d.id)) return false;
+      seenIds.add(d.id);
+      return true;
+    });
     recordSync('hubspot');
 
     const regionFiltered = region
